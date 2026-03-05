@@ -10,8 +10,20 @@ async def main():
     async with AsyncInstagram.anonymous(unlimited=True) as ig:
         profile = await ig.public.get_profile("cristiano")
         print(f"{profile['followers']:,}")
+        print(f"Strategy: {profile['_strategy']}")  # web_api
 
 asyncio.run(main())
+```
+
+### Custom Strategy Order
+
+```python
+async with AsyncInstagram.anonymous(
+    unlimited=True,
+    profile_strategies=["web_api", "html_parse"],
+    posts_strategies=["mobile_feed", "web_api"],
+) as ig:
+    profile = await ig.public.get_profile("nike")
 ```
 
 ---

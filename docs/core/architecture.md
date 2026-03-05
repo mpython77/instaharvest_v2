@@ -91,6 +91,7 @@ graph TB
 | **DeviceFingerprint** | `device_fingerprint.py` | Mobile device simulation |
 | **EventEmitter** | `events.py` | Event hooks system |
 | **Plugin** | `plugin.py` | Plugin architecture |
+| **Strategy** | `strategy.py` | Configurable strategy chain (ProfileStrategy, PostsStrategy) |
 
 ## Two Operation Modes
 
@@ -100,7 +101,7 @@ graph TB
     Instagram.anonymous()
         → PublicAPI
             → AnonClient
-                → 5 strategies (no cookies needed)
+                → configurable strategies (no cookies needed)
                     → curl_cffi (TLS fingerprint)
     ```
 
@@ -118,7 +119,7 @@ graph TB
 
 | Pattern | Where | Why |
 |---|---|---|
-| **Strategy** | AnonClient | 5 fallback strategies for resilience |
+| **Strategy** | AnonClient | Configurable fallback strategies for resilience |
 | **Chain of Responsibility** | Fallback chain | Auto-try next on failure |
 | **Factory** | `Instagram.from_env()` | Clean initialization |
 | **Observer** | EventEmitter | Decoupled event handling |

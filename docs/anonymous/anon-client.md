@@ -12,6 +12,35 @@ client = ig._anon_client  # AnonClient instance
 
 ---
 
+## Strategy Configuration
+
+AnonClient uses a **configurable fallback chain** for profile and posts fetching.
+
+```python
+from instaharvest_v2 import Instagram
+
+# Custom strategy order:
+ig = Instagram.anonymous(
+    profile_strategies=["web_api", "html_parse"],  # skip graphql
+    posts_strategies=["mobile_feed", "web_api"],    # mobile first
+)
+
+# Access strategies on client:
+print(ig._anon_client._profile_strategies)  # [ProfileStrategy.WEB_API, ProfileStrategy.HTML_PARSE]
+print(ig._anon_client._posts_strategies)    # [PostsStrategy.MOBILE_FEED, PostsStrategy.WEB_API]
+```
+
+### get_profile_chain(username)
+
+Uses configurable `_profile_strategies` list. Default: Web API → GraphQL → HTML Parse.
+
+```python
+result = client.get_profile_chain("cristiano")
+print(result["_strategy"])  # "web_api", "graphql", or "html_parse"
+```
+
+---
+
 ## Strategy Methods
 
 ### get_profile_html(username)
@@ -45,7 +74,7 @@ data = client.get_graphql_public(
 
 ### get_web_api(path, params=None)
 
-Make web API request to `i.instagram.com/api/v1/`.
+Make web API request to `www.instagram.com/api/v1/`.
 
 ```python
 data = client.get_web_api(
@@ -71,12 +100,20 @@ data = client.get_mobile_api(
 
 ### get_web_profile(username)
 
-Get profile via web API strategy.
-
-**Returns:** `(profile_dict, posts_list)` or `(None, [])`
+Get raw profile via web API strategy.
 
 ```python
-profile, posts = client.get_web_profile("cristiano")
+profile = client.get_web_profile("cristiano")
+```
+
+### _get_web_profile_parsed(username)
+
+Get profile via web API and parse into **standardized format** (20+ fields).
+Returns the richest data — bio_links, category, business_email, external_url.
+
+```python
+profile = client._get_web_profile_parsed("cristiano")
+# Same format as get_profile_chain but always uses web_api strategy
 ```
 
 ### get_user_info_mobile(user_id)
@@ -105,29 +142,9 @@ Search via web API.
 
 Get reels via mobile API.
 
-**Returns:**
-
-```python
-{
-    "items": [{"pk": ..., "play_count": ..., "is_reel": True, ...}],
-    "more_available": True,
-    "next_max_id": "cursor..."
-}
-```
-
 ### get_user_feed_mobile(user_id, count=12, max_id=None)
 
 Get user feed via mobile API.
-
-**Returns:**
-
-```python
-{
-    "items": [{"pk": ..., "likes": ..., "shortcode": ..., ...}],
-    "more_available": True,
-    "next_max_id": "cursor..."
-}
-```
 
 ### get_media_info_mobile(media_id)
 
@@ -155,6 +172,7 @@ Get highlight tray metadata.
 
 | Method | Input | Output |
 |---|---|---|
+| `_get_web_profile_parsed(user)` | username str | Standardized profile (richest) |
 | `_parse_graphql_user(user)` | GraphQL user dict | Normalized profile |
 | `_parse_timeline_edges(edges)` | GraphQL edges | Post list |
 | `_parse_mobile_feed_item(item)` | Mobile API item | Normalized post |

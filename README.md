@@ -9,13 +9,13 @@
     <a href="https://github.com/mpython77/instaharvest_v2/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mpython77/instaharvest_v2" alt="License"></a>
     <img src="https://img.shields.io/badge/modules-32+32-green" alt="Modules">
     <img src="https://img.shields.io/badge/async-full_parity-brightgreen" alt="Async">
-    <img src="https://img.shields.io/badge/tests-475_passed-success" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-489_passed-success" alt="Tests">
     <img src="https://img.shields.io/badge/coverage-35%25-green" alt="Coverage">
     <a href="https://mpython77.github.io/instaharvest_v2/"><img src="https://img.shields.io/badge/docs-online-blue?logo=readthedocs" alt="Docs"></a>
   </p>
 </p>
 
-> 32 sync + 32 async modules • 230+ functions • Pydantic models • AI Agent • CI/CD • 475 tests passed
+> 32 sync + 32 async modules • 230+ functions • Pydantic models • AI Agent • CI/CD • 489 tests passed
 >
 > 📖 **Documentation:** [mpython77.github.io/instaharvest_v2](https://mpython77.github.io/instaharvest_v2/)
 
@@ -456,7 +456,7 @@ print(user.some_new_field)    # works!
 | 🤖 **AI Agent** | 13 providers, natural language control, memory, webhooks |
 | 📊 **12 Advanced tools** | Analytics, Export, Growth, Automation, Monitor, Pipeline, etc. |
 | ✅ **CI/CD** | GitHub Actions — lint, test (3 Python versions), security, build |
-| 🧪 **475 tests** | 35% coverage, pytest-cov, comprehensive unit & integration tests |
+| 🧪 **489 tests** | 35% coverage, pytest-cov, comprehensive unit & integration tests |
 
 ## Speed Modes (Async)
 
@@ -485,7 +485,7 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 
 **Current status:**
 
-- ✅ 475 tests passed
+- ✅ 489 tests passed
 - 📊 35.3% code coverage
 
 ---
@@ -498,8 +498,12 @@ instaharvest_v2/
 ├── async_instagram.py     # Main class (async)
 ├── client.py              # HTTP client (curl_cffi)
 ├── async_client.py        # Async HTTP client
+├── anon_client.py         # Anonymous scraping client (sync)
+├── async_anon_client.py   # Anonymous scraping client (async)
+├── parsers.py             # Shared parser functions (8 standalone)
 ├── challenge.py           # Challenge auto-resolver
 ├── anti_detect.py         # Anti-detection system
+├── smart_rotation.py      # Multi-signal rotation coordinator
 ├── session_manager.py     # Session auto-refresh
 ├── proxy_manager.py       # Proxy rotation
 ├── rate_limiter.py        # Rate limiting
@@ -552,7 +556,7 @@ instaharvest_v2/
 │   ├── webhook.py         # Notifications (Telegram, Discord)
 │   ├── cost_tracker.py    # Token usage & pricing
 │   └── vision.py          # Multimodal image analysis
-tests/                     # 475 tests
+tests/                     # 489 tests
 docs/                      # MkDocs documentation
 .github/workflows/         # CI/CD pipeline
 ```

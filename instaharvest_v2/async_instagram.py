@@ -238,31 +238,46 @@ class AsyncInstagram:
         return ig
 
     @classmethod
-    def anonymous(cls, mode: str = "safe", unlimited: bool = False) -> "AsyncInstagram":
+    def anonymous(
+        cls,
+        mode: str = "safe",
+        unlimited: bool = False,
+        profile_strategies=None,
+        posts_strategies=None,
+    ) -> "AsyncInstagram":
         """
         Create anonymous-only async client (no login).
 
         Args:
             mode: Speed mode — 'safe', 'fast', 'turbo', or 'unlimited'
             unlimited: If True, force unlimited mode (no delays, no rate limits)
+            profile_strategies: Custom profile strategy order.
+                               Default: ["web_api", "graphql", "html_parse"]
+            posts_strategies: Custom posts strategy order.
+                             Default: ["web_api", "html_parse", "graphql", "mobile_feed"]
 
         Usage:
             async with AsyncInstagram.anonymous() as ig:
                 profile = await ig.public.get_profile("cristiano")
 
-            # Maximum speed — 1000 concurrent, no delays:
-            async with AsyncInstagram.anonymous(unlimited=True) as ig:
+            # Custom strategy + unlimited:
+            async with AsyncInstagram.anonymous(
+                unlimited=True,
+                profile_strategies=["web_api", "html_parse"],
+            ) as ig:
                 tasks = [ig.public.get_profile(u) for u in usernames]
                 results = await asyncio.gather(*tasks)
         """
         if unlimited:
             mode = "unlimited"
         instance = cls(mode=mode, rate_limiting=not unlimited)
-        # Override with unlimited AsyncAnonClient
+        # Override with unlimited AsyncAnonClient + strategies
         instance._anon_client = AsyncAnonClient(
             anti_detect=instance._anti_detect,
             proxy_manager=instance._proxy_mgr,
             unlimited=unlimited,
+            profile_strategies=profile_strategies,
+            posts_strategies=posts_strategies,
         )
         instance.public = AsyncPublicAPI(instance._anon_client)
         return instance

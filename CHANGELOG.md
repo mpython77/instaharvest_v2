@@ -2,6 +2,26 @@
 
 All notable changes to instaharvest_v2.
 
+## [1.0.19] - 2026-03-06
+
+### 🏗️ Architecture Refactoring & Feature Parity
+
+- **NEW: `parsers.py`** — 8 standalone parser functions extracted from clients:
+  - `parse_count`, `parse_meta_tags`, `parse_graphql_user`, `parse_timeline_edges`
+  - `parse_embed_media`, `parse_embed_html`, `parse_mobile_feed_item`, `parse_graphql_docid_media`
+  - Eliminates ~800 lines of duplicated code between sync/async clients
+- **`anon_client.py` refactored** — All 8 parser methods now delegate to `parsers.py`. Added `close()` for resource cleanup
+- **`async_anon_client.py` refactored** — Parser delegation + 3 missing methods added:
+  - `_request_post()` — POST requests with full retry, proxy, and anti-detect integration
+  - `get_graphql_docid()` — GraphQL doc_id endpoint (was sync-only)
+  - `close()` — Async resource cleanup
+- **Async `_request_post` proxy fix** — Added `report_success`/`report_failure`, 401/403 proxy retry, network error proxy rotation (matching `_request` GET behavior)
+- **`parse_count` hardened** — Now handles `None` and empty string inputs gracefully
+- **Docstrings corrected** — "5-strategy fallback chain" → "configurable strategy fallback chain" across `public.py` and `async_public.py`
+- **489 tests** — all passing (was 475)
+
+---
+
 ## [1.0.18] - 2026-03-01
 
 ### 🔓 Public Endpoints — No Login Required
@@ -278,7 +298,7 @@ All notable changes to instaharvest_v2.
 
 #### Testing & CI/CD
 
-- 475 tests — all passing
+- 489 tests — all passing
 - pytest-cov with coverage thresholds
 - GitHub Actions: lint, test (Python 3.10-3.12), security scan, package build
 

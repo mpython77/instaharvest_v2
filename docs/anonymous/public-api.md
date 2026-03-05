@@ -8,6 +8,13 @@ from instaharvest_v2 import Instagram
 ig = Instagram.anonymous()
 # or with unlimited speed:
 ig = Instagram.anonymous(unlimited=True)
+
+# Custom strategy order:
+ig = Instagram.anonymous(
+    unlimited=True,
+    profile_strategies=["web_api", "html_parse"],
+    posts_strategies=["mobile_feed", "web_api"],
+)
 ```
 
 ---

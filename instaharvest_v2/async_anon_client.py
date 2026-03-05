@@ -3,14 +3,17 @@ Async Anonymous Client
 ======================
 True async HTTP client for public Instagram data without authentication.
 Uses curl_cffi.AsyncSession for real non-blocking I/O.
-All 5 scraping strategies work fully in async mode.
+Configurable strategy chain with automatic fallback.
 
-Strategy chain:
-    1. Web HTML Parse — parse profile page for embedded JSON
-    2. Embed Endpoint — /p/{shortcode}/embed/captioned/
-    3. GraphQL Public — public query_hash queries
-    4. Mobile API — i.instagram.com/api/v1
-    5. Web API — www.instagram.com/api/v1 (no cookies)
+Default strategy chain (profile):
+    1. Web API — www.instagram.com/api/v1 (richest data)
+    2. GraphQL Public — public query_hash queries
+    3. Web HTML Parse — parse profile page for embedded JSON
+
+Other strategies:
+    - Embed Endpoint — /p/{shortcode}/embed/captioned/
+    - Mobile API — i.instagram.com/api/v1
+    - GraphQL doc_id — cookie-free POST queries
 
 Concurrency control:
     - asyncio.Semaphore for global concurrency limit
@@ -31,6 +34,15 @@ from curl_cffi.requests import AsyncSession
 
 from .anti_detect import AntiDetect
 from .proxy_manager import ProxyManager
+from . import parsers as _parsers
+from .strategy import (
+    ProfileStrategy,
+    PostsStrategy,
+    DEFAULT_PROFILE_STRATEGIES,
+    DEFAULT_POSTS_STRATEGIES,
+    parse_profile_strategies,
+    parse_posts_strategies,
+)
 from .config import (
     ANON_RATE_LIMITS,
     ANON_RATE_LIMITS_UNLIMITED,
@@ -40,6 +52,8 @@ from .config import (
     EMBED_URL,
     MOBILE_API_BASE,
     IG_APP_ID,
+    GRAPHQL_DOC_IDS,
+    GRAPHQL_LSD_TOKEN,
     MAX_RETRIES,
 )
 
@@ -96,7 +110,7 @@ class AsyncAnonClient:
     Async anonymous HTTP client — no cookies, no session.
 
     Features:
-        - 5 scraping strategies with automatic fallback
+        - Configurable scraping strategies with automatic fallback
         - TRUE async I/O via curl_cffi.AsyncSession
         - asyncio.Semaphore concurrency control
         - Shared anti-detect (fingerprint rotation)
@@ -121,6 +135,8 @@ class AsyncAnonClient:
         proxy_manager: Optional[ProxyManager] = None,
         unlimited: bool = False,
         max_concurrency: int = 0,
+        profile_strategies=None,
+        posts_strategies=None,
     ):
         """
         Args:
@@ -129,6 +145,8 @@ class AsyncAnonClient:
             unlimited: Disable all delays and rate limits
             max_concurrency: Override max concurrent requests
                             (0 = auto: 1000 if unlimited, 10 if normal)
+            profile_strategies: Custom profile strategy order
+            posts_strategies: Custom posts strategy order
         """
         self._anti_detect = anti_detect or AntiDetect()
         self._proxy_mgr = proxy_manager
@@ -153,6 +171,10 @@ class AsyncAnonClient:
         self._request_count = 0
         self._error_count = 0
         self._active_requests = 0
+
+        # Configurable strategy chains
+        self._profile_strategies = parse_profile_strategies(profile_strategies)
+        self._posts_strategies = parse_posts_strategies(posts_strategies)
 
     # ═══════════════════════════════════════════════════════════
     # SESSION MANAGEMENT
@@ -467,135 +489,20 @@ class AsyncAnonClient:
         return result if result else None
 
     def _parse_meta_tags(self, html: str) -> Dict:
-        """Extract profile data from meta tags and title."""
-        import html as html_module
-        data = {}
-
-        title_match = re.search(r'<title>([^<]*)</title>', html)
-        if title_match:
-            title_text = html_module.unescape(title_match.group(1))
-            name_match = re.search(r'^(.+?)\s*\(@(\w+)\)', title_text)
-            if name_match:
-                data["full_name"] = name_match.group(1).strip()
-                data["username"] = name_match.group(2)
-
-        all_content = " ".join(re.findall(r'content="([^"]*)"', html))
-        all_content = html_module.unescape(all_content)
-
-        followers_m = re.search(r'([\d,.]+[KMBkmb]?)\s*Followers', all_content, re.IGNORECASE)
-        following_m = re.search(r'([\d,.]+[KMBkmb]?)\s*Following', all_content, re.IGNORECASE)
-        posts_m = re.search(r'([\d,.]+[KMBkmb]?)\s*Posts', all_content, re.IGNORECASE)
-
-        if followers_m:
-            data["followers"] = self._parse_count(followers_m.group(1))
-        if following_m:
-            data["following"] = self._parse_count(following_m.group(1))
-        if posts_m:
-            data["posts_count"] = self._parse_count(posts_m.group(1))
-
-        desc_match = re.search(r'<meta[^>]+(?:name|property)="description"[^>]+content="([^"]*)"', html)
-        if not desc_match:
-            desc_match = re.search(r'<meta[^>]+content="([^"]*)"[^>]+(?:name|property)="description"', html)
-        if desc_match:
-            desc = html_module.unescape(desc_match.group(1))
-            bio_match = re.search(r'Posts\s*[-–—:]\s*(.*)', desc, re.DOTALL)
-            if bio_match:
-                bio = bio_match.group(1).strip()
-                if bio:
-                    data["biography"] = bio
-
-        og_image = re.search(r'<meta[^>]+property="og:image"[^>]+content="([^"]*)"', html)
-        if not og_image:
-            og_image = re.search(r'<meta[^>]+content="([^"]*)"[^>]+property="og:image"', html)
-        if og_image:
-            data["profile_pic_url"] = html_module.unescape(og_image.group(1))
-
-        return data
+        """Delegate to parsers.parse_meta_tags."""
+        return _parsers.parse_meta_tags(html)
 
     def _parse_count(self, text: str) -> int:
-        """Parse follower count text: '1.2M' -> 1200000."""
-        text = text.replace(",", "").strip()
-        multiplier = 1
-        if text.endswith(("K", "k")):
-            multiplier = 1000
-            text = text[:-1]
-        elif text.endswith(("M", "m")):
-            multiplier = 1000000
-            text = text[:-1]
-        try:
-            return int(float(text) * multiplier)
-        except ValueError:
-            return 0
+        """Delegate to parsers.parse_count."""
+        return _parsers.parse_count(text)
 
     def _parse_graphql_user(self, user: Dict) -> Dict:
-        """Parse GraphQL user object into clean format."""
-        edges_media = user.get("edge_owner_to_timeline_media", {})
-        return {
-            "user_id": user.get("id"),
-            "username": user.get("username"),
-            "full_name": user.get("full_name"),
-            "biography": user.get("biography"),
-            "profile_pic_url": user.get("profile_pic_url"),
-            "profile_pic_url_hd": user.get("profile_pic_url_hd"),
-            "is_private": user.get("is_private", False),
-            "is_verified": user.get("is_verified", False),
-            "is_business": user.get("is_business_account", False),
-            "category": user.get("category_name", ""),
-            "external_url": user.get("external_url"),
-            "followers": user.get("edge_followed_by", {}).get("count"),
-            "following": user.get("edge_follow", {}).get("count"),
-            "posts_count": edges_media.get("count"),
-            "bio_links": user.get("bio_links", []),
-            "pronouns": user.get("pronouns", []),
-            "highlight_count": user.get("highlight_reel_count", 0),
-            "recent_posts": self._parse_timeline_edges(edges_media.get("edges", [])),
-        }
+        """Delegate to parsers.parse_graphql_user."""
+        return _parsers.parse_graphql_user(user)
 
     def _parse_timeline_edges(self, edges: List[Dict]) -> List[Dict]:
-        """Parse GraphQL timeline edges into post list."""
-        posts = []
-        for edge in edges:
-            node = edge.get("node", {})
-            caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-            caption = caption_edges[0]["node"]["text"] if caption_edges else ""
-
-            post = {
-                "shortcode": node.get("shortcode"),
-                "media_type": node.get("__typename"),
-                "display_url": node.get("display_url"),
-                "thumbnail_url": node.get("thumbnail_src"),
-                "is_video": node.get("is_video", False),
-                "likes": node.get("edge_liked_by", {}).get("count", 0),
-                "comments": node.get("edge_media_to_comment", {}).get("count", 0),
-                "caption": caption,
-                "taken_at": node.get("taken_at_timestamp"),
-                "pk": node.get("id"),
-                "video_url": node.get("video_url"),
-                "video_views": node.get("video_view_count"),
-            }
-
-            sidecar = node.get("edge_sidecar_to_children", {})
-            if sidecar:
-                children = []
-                for child_edge in sidecar.get("edges", []):
-                    child = child_edge.get("node", {})
-                    children.append({
-                        "pk": child.get("id"),
-                        "shortcode": child.get("shortcode"),
-                        "display_url": child.get("display_url"),
-                        "is_video": child.get("is_video", False),
-                        "video_url": child.get("video_url"),
-                        "media_type": child.get("__typename"),
-                        "display_resources": [
-                            {"url": r.get("src"), "width": r.get("config_width"), "height": r.get("config_height")}
-                            for r in child.get("display_resources", [])
-                        ],
-                    })
-                post["carousel_media"] = children
-                post["carousel_count"] = len(children)
-
-            posts.append(post)
-        return posts
+        """Delegate to parsers.parse_timeline_edges."""
+        return _parsers.parse_timeline_edges(edges)
 
     # ═══════════════════════════════════════════════════════════
     # STRATEGY 2: Embed Endpoint
@@ -637,67 +544,12 @@ class AsyncAnonClient:
         return result if result else None
 
     def _parse_embed_media(self, media: Dict) -> Dict:
-        """Parse shortcode_media from embed data."""
-        owner = media.get("owner", {})
-        caption_edges = media.get("edge_media_to_caption", {}).get("edges", [])
-        caption = caption_edges[0]["node"]["text"] if caption_edges else ""
-
-        images = []
-        if media.get("display_url"):
-            images.append({"url": media["display_url"]})
-        for res in media.get("display_resources", []):
-            images.append({
-                "url": res.get("src"),
-                "width": res.get("config_width"),
-                "height": res.get("config_height"),
-            })
-
-        return {
-            "pk": media.get("id"),
-            "shortcode": media.get("shortcode"),
-            "media_type": media.get("__typename"),
-            "is_video": media.get("is_video", False),
-            "caption": caption,
-            "likes": media.get("edge_media_preview_like", {}).get("count", 0),
-            "comments_count": media.get("edge_media_preview_comment", {}).get("count", 0) or
-                              media.get("edge_media_to_parent_comment", {}).get("count", 0),
-            "taken_at": media.get("taken_at_timestamp"),
-            "owner": {
-                "username": owner.get("username"),
-                "pk": owner.get("id"),
-                "is_verified": owner.get("is_verified"),
-                "profile_pic_url": owner.get("profile_pic_url"),
-            },
-            "images": images,
-            "video_url": media.get("video_url"),
-            "video_views": media.get("video_view_count"),
-        }
+        """Delegate to parsers.parse_embed_media."""
+        return _parsers.parse_embed_media(media)
 
     def _parse_embed_html(self, html: str, shortcode: str) -> Dict:
-        """Fallback: parse embed HTML tags."""
-        data = {"shortcode": shortcode}
-
-        caption_match = re.search(
-            r'<div class="Caption"[^>]*>.*?<div class="CaptionTextContainer"[^>]*>(.*?)</div>',
-            html, re.DOTALL
-        )
-        if caption_match:
-            caption_html = caption_match.group(1)
-            data["caption"] = re.sub(r'<[^>]+>', '', caption_html).strip()
-
-        user_match = re.search(r'<a[^>]*class="UserName"[^>]*>([^<]+)</a>', html)
-        if user_match:
-            data["owner"] = {"username": user_match.group(1).strip()}
-
-        likes_match = re.search(r'<button[^>]*>.*?([\d,]+)\s*likes?', html, re.DOTALL | re.IGNORECASE)
-        if likes_match:
-            data["likes"] = int(likes_match.group(1).replace(",", ""))
-
-        img_match = re.search(r'<img[^>]+class="[^"]*EmbeddedMedia[^"]*"[^>]+src="([^"]+)"', html)
-        if img_match:
-            data["images"] = [{"url": img_match.group(1)}]
-
-        return data if len(data) > 1 else {}
+        """Delegate to parsers.parse_embed_html."""
+        return _parsers.parse_embed_html(html, shortcode)
 
     # ═══════════════════════════════════════════════════════════
     # STRATEGY 3: GraphQL Public Queries
@@ -865,23 +717,71 @@ class AsyncAnonClient:
     # FALLBACK CHAIN — try all strategies (async)
     # ═══════════════════════════════════════════════════════════
 
-    async def get_profile_chain(self, username: str) -> Optional[Dict]:
-        """Get profile using fallback chain (async)."""
-        strategies = [
-            ("html_parse", lambda: self.get_profile_html(username)),
-            ("web_api", lambda: self.get_web_profile(username)),
-            ("graphql", lambda: self._graphql_profile_fallback(username)),
-        ]
+    async def _get_web_profile_parsed(self, username: str) -> Optional[Dict]:
+        """
+        Get profile via web API and parse into standardized format (async).
+        Returns the richest data — same format as sync version.
+        """
+        raw = await self.get_web_profile(username)
+        if not raw or not isinstance(raw, dict):
+            return None
 
-        for name, fn in strategies:
+        edges_media = raw.get("edge_owner_to_timeline_media", {})
+        bio_links = raw.get("bio_links", [])
+
+        profile = {
+            "user_id": raw.get("id"),
+            "username": raw.get("username"),
+            "full_name": raw.get("full_name"),
+            "biography": raw.get("biography", ""),
+            "profile_pic_url": raw.get("profile_pic_url"),
+            "profile_pic_url_hd": raw.get("profile_pic_url_hd", raw.get("profile_pic_url")),
+            "is_private": raw.get("is_private", False),
+            "is_verified": raw.get("is_verified", False),
+            "is_business": raw.get("is_business_account", False),
+            "category": raw.get("category_name", raw.get("business_category_name", "")),
+            "external_url": raw.get("external_url"),
+            "followers": raw.get("edge_followed_by", {}).get("count", 0),
+            "following": raw.get("edge_follow", {}).get("count", 0),
+            "posts_count": edges_media.get("count", 0),
+            "bio_links": bio_links if isinstance(bio_links, list) else [],
+            "pronouns": raw.get("pronouns", []),
+            "highlight_count": raw.get("highlight_reel_count", 0),
+            "recent_posts": self._parse_timeline_edges(edges_media.get("edges", [])),
+            "has_clips": raw.get("has_clips", False),
+            "has_guides": raw.get("has_guides", False),
+            "mutual_followers": raw.get("edge_mutual_followed_by", {}).get("count", 0),
+            "business_email": raw.get("business_email"),
+            "business_phone": raw.get("business_phone_number"),
+            "business_address": raw.get("business_address_json"),
+        }
+        return profile
+
+    async def get_profile_chain(self, username: str) -> Optional[Dict]:
+        """
+        Get profile using configurable fallback chain (async).
+        Strategy order is controlled by self._profile_strategies.
+        Default: Web API → GraphQL → HTML parse.
+        """
+        strategy_map = {
+            ProfileStrategy.WEB_API: lambda: self._get_web_profile_parsed(username),
+            ProfileStrategy.GRAPHQL: lambda: self._graphql_profile_fallback(username),
+            ProfileStrategy.HTML_PARSE: lambda: self.get_profile_html(username),
+        }
+
+        for strategy in self._profile_strategies:
+            fn = strategy_map.get(strategy)
+            if not fn:
+                continue
             try:
                 result = await fn()
-                if result:
-                    logger.info(f"[AsyncAnon] Profile '{username}' fetched via {name}")
+                if result and (result.get("username") or result.get("followers")):
+                    logger.info(f"[AsyncAnon] Profile '{username}' fetched via {strategy.value}")
+                    result["_strategy"] = strategy.value
                     return result
-                logger.debug(f"[AsyncAnon] Strategy {name} returned empty for '{username}'")
+                logger.debug(f"[AsyncAnon] Strategy {strategy.value} returned empty for '{username}'")
             except Exception as e:
-                logger.debug(f"[AsyncAnon] Strategy {name} failed: {e}")
+                logger.debug(f"[AsyncAnon] Strategy {strategy.value} failed: {e}")
                 continue
 
         logger.warning(f"[AsyncAnon] All strategies failed for profile '{username}'")
@@ -992,97 +892,8 @@ class AsyncAnonClient:
         return None
 
     def _parse_mobile_feed_item(self, item: Dict) -> Dict:
-        """
-        Normalize a mobile API feed item into consistent format.
-        Handles photo, video, carousel (sidecar) types.
-        """
-        media_type_map = {1: "GraphImage", 2: "GraphVideo", 8: "GraphSidecar"}
-        raw_type = item.get("media_type", 1)
-        caption_obj = item.get("caption") or {}
-        caption_text = caption_obj.get("text", "") if isinstance(caption_obj, dict) else ""
-
-        # Best quality image
-        candidates = item.get("image_versions2", {}).get("candidates", [])
-        image_url = ""
-        if candidates:
-            best = max(candidates, key=lambda c: c.get("width", 0) * c.get("height", 0))
-            image_url = best.get("url", "")
-
-        taken_at = item.get("taken_at")
-        result = {
-            "pk": item.get("pk"),
-            "shortcode": item.get("code"),
-            "media_type": media_type_map.get(raw_type, f"type_{raw_type}"),
-            "display_url": image_url,
-            "is_video": raw_type == 2,
-            "likes": item.get("like_count", 0),
-            "comments": item.get("comment_count", 0),
-            "caption": caption_text,
-        }
-
-        if taken_at:
-            try:
-                result["taken_at"] = taken_at
-                result["posted_date"] = datetime.fromtimestamp(taken_at).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                pass
-
-        # Video
-        if raw_type == 2:
-            video_versions = item.get("video_versions", [])
-            if video_versions:
-                result["video_url"] = video_versions[0].get("url", "")
-            result["video_views"] = item.get("view_count") or item.get("play_count")
-            result["video_duration"] = item.get("video_duration")
-
-        # Carousel
-        carousel = item.get("carousel_media", [])
-        if carousel:
-            children = []
-            for child in carousel:
-                cc = child.get("image_versions2", {}).get("candidates", [])
-                child_img = ""
-                if cc:
-                    best_c = max(cc, key=lambda c: c.get("width", 0) * c.get("height", 0))
-                    child_img = best_c.get("url", "")
-                cd = {"display_url": child_img, "is_video": child.get("media_type") == 2}
-                if child.get("media_type") == 2:
-                    cvv = child.get("video_versions", [])
-                    if cvv:
-                        cd["video_url"] = cvv[0].get("url", "")
-                children.append(cd)
-            result["carousel_media"] = children
-            result["carousel_count"] = len(children)
-
-        # Location
-        loc = item.get("location")
-        if loc and isinstance(loc, dict):
-            result["location"] = {
-                "name": loc.get("name"),
-                "city": loc.get("city"),
-                "lat": loc.get("lat"),
-                "lng": loc.get("lng"),
-            }
-
-        # Tagged users
-        ut = item.get("usertags", {})
-        if ut and ut.get("in"):
-            result["tagged_users"] = [
-                t.get("user", {}).get("username", "")
-                for t in ut["in"] if t.get("user")
-            ]
-
-        # Owner
-        owner = item.get("user", {})
-        if owner:
-            result["owner"] = {
-                "username": owner.get("username"),
-                "pk": owner.get("pk"),
-                "is_verified": owner.get("is_verified"),
-                "profile_pic_url": owner.get("profile_pic_url"),
-            }
-
-        return result
+        """Delegate to parsers.parse_mobile_feed_item."""
+        return _parsers.parse_mobile_feed_item(item)
 
     # ═══════════════════════════════════════════════════════════
     # SEARCH — web/search/topsearch (async)
@@ -1364,6 +1175,195 @@ class AsyncAnonClient:
                 })
             return highlights
         return None
+
+    # ═══════════════════════════════════════════════════════════
+    # GraphQL doc_id (cookie-free, POST /api/graphql) — async
+    # ═══════════════════════════════════════════════════════════
+
+    async def _request_post(
+        self,
+        url: str,
+        strategy: str,
+        headers: Optional[Dict] = None,
+        data: Optional[Dict] = None,
+        timeout: int = 15,
+    ) -> Any:
+        """
+        Send async anonymous POST request with anti-detect and proxy.
+        Used for GraphQL doc_id endpoint which requires POST.
+        """
+        identity = self._anti_detect.get_identity()
+
+        req_headers = {
+            "user-agent": identity.user_agent,
+            "accept": "*/*",
+            "accept-language": identity.accept_language,
+            "accept-encoding": "gzip, deflate, br",
+            "content-type": "application/x-www-form-urlencoded",
+            "x-ig-app-id": IG_APP_ID,
+            "x-fb-lsd": GRAPHQL_LSD_TOKEN,
+            "x-asbd-id": "129477",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "referer": "https://www.instagram.com/",
+            "origin": "https://www.instagram.com",
+        }
+        if identity.sec_ch_ua:
+            req_headers["sec-ch-ua"] = identity.sec_ch_ua
+            req_headers["sec-ch-ua-mobile"] = identity.sec_ch_ua_mobile
+            req_headers["sec-ch-ua-platform"] = identity.sec_ch_ua_platform
+        if headers:
+            req_headers.update(headers)
+
+        proxy = None
+        if self._proxy_mgr and self._proxy_mgr.active_count > 0:
+            proxy = self._proxy_mgr.get_proxy()
+
+        await self._human_delay()
+        await self._rate_limiter.wait_if_needed(strategy)
+
+        session = await self._get_session()
+        kwargs = {
+            "url": url,
+            "headers": req_headers,
+            "data": data or {},
+            "timeout": timeout,
+            "allow_redirects": True,
+            "verify": False,
+        }
+        if proxy:
+            kwargs["proxies"] = {"https": proxy, "http": proxy}
+
+        last_error = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                session = await self._get_session()
+                response = await session.post(**kwargs)
+                self._request_count += 1
+
+                # Report proxy success
+                if proxy:
+                    elapsed = getattr(response, 'elapsed', 0.0)
+                    self._proxy_mgr.report_success(proxy, elapsed)
+
+                if response.status_code == 429:
+                    logger.warning(f"[AsyncAnon] Rate limited on {strategy} POST, attempt {attempt + 1}")
+                    self._anti_detect.on_error("rate_limit")
+                    wait = random.uniform(
+                        self._delays["after_rate_limit"]["min"],
+                        self._delays["after_rate_limit"]["max"],
+                    )
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                    identity = self._anti_detect.get_identity(force_new=True)
+                    kwargs["headers"]["user-agent"] = identity.user_agent
+                    await self._rotate_session()
+                    continue
+
+                if response.status_code == 404:
+                    return None
+
+                if response.status_code in (401, 403):
+                    # Retry with new proxy + identity
+                    if attempt < MAX_RETRIES and self._proxy_mgr and self._proxy_mgr.active_count > 0:
+                        logger.debug(f"[AsyncAnon] Auth {response.status_code} on {strategy} POST, retrying...")
+                        if proxy:
+                            self._proxy_mgr.report_failure(proxy)
+                        proxy = self._proxy_mgr.get_proxy()
+                        if proxy:
+                            kwargs["proxies"] = {"https": proxy, "http": proxy}
+                        identity = self._anti_detect.get_identity(force_new=True)
+                        kwargs["headers"]["user-agent"] = identity.user_agent
+                        await self._rotate_session()
+                        err_wait = self._delays.get("after_error", {})
+                        if err_wait.get("max", 0) > 0:
+                            await asyncio.sleep(random.uniform(err_wait.get("min", 0.5), err_wait["max"]))
+                        continue
+                    raise AsyncStrategyFailed(f"Auth required: {response.status_code}")
+
+                if response.status_code >= 500:
+                    logger.warning(f"[AsyncAnon] Server error {response.status_code} on {strategy} POST")
+                    if not self._unlimited:
+                        await asyncio.sleep(random.uniform(1, 3))
+                    continue
+
+                response.raise_for_status()
+                return response.json()
+
+            except AsyncStrategyFailed:
+                raise
+            except Exception as e:
+                last_error = e
+                self._error_count += 1
+                if proxy:
+                    self._proxy_mgr.report_failure(proxy)
+                self._anti_detect.on_error("network")
+
+                if attempt < MAX_RETRIES:
+                    err_min = self._delays["after_error"]["min"]
+                    err_max = self._delays["after_error"]["max"]
+                    if err_max > 0:
+                        await asyncio.sleep(random.uniform(err_min, err_max))
+
+                    # Get new proxy for retry
+                    if self._proxy_mgr and self._proxy_mgr.active_count > 0:
+                        proxy = self._proxy_mgr.get_proxy()
+                        if proxy:
+                            kwargs["proxies"] = {"https": proxy, "http": proxy}
+
+        raise AsyncStrategyFailed(f"All POST attempts failed for {strategy}: {last_error}")
+
+    async def get_graphql_docid(
+        self,
+        shortcode: str,
+    ) -> Optional[Dict]:
+        """
+        Get post/reel data via GraphQL doc_id API (cookie-free, async).
+
+        Uses Instagram's internal GraphQL POST endpoint with doc_id.
+        No cookies or authentication required.
+
+        Args:
+            shortcode: Post or reel shortcode
+
+        Returns:
+            Parsed media dict or None
+        """
+        doc_id = GRAPHQL_DOC_IDS.get("media_shortcode")
+        if not doc_id:
+            return None
+
+        url = "https://www.instagram.com/api/graphql"
+        post_data = {
+            "variables": json.dumps({"shortcode": shortcode}),
+            "doc_id": doc_id,
+            "lsd": GRAPHQL_LSD_TOKEN,
+        }
+
+        try:
+            data = await self._request_post(
+                url, "graphql_docid",
+                data=post_data,
+            )
+        except AsyncStrategyFailed:
+            return None
+
+        if not data or not isinstance(data, dict):
+            return None
+
+        media = (
+            data.get("data", {})
+            .get("xdt_shortcode_media")
+        )
+        if not media:
+            return None
+
+        return self._parse_graphql_docid_media(media)
+
+    def _parse_graphql_docid_media(self, media: Dict) -> Dict:
+        """Delegate to parsers.parse_graphql_docid_media."""
+        return _parsers.parse_graphql_docid_media(media)
 
     # ═══════════════════════════════════════════════════════════
     # CLEANUP & STATS

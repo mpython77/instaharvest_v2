@@ -410,29 +410,42 @@ class Instagram:
         return ig
 
     @classmethod
-    def anonymous(cls, unlimited: bool = False) -> "Instagram":
+    def anonymous(
+        cls,
+        unlimited: bool = False,
+        profile_strategies=None,
+        posts_strategies=None,
+    ) -> "Instagram":
         """
         Create anonymous-only client (no login, no .env).
 
         Args:
             unlimited: If True, disable all rate limiting and delays
                       for maximum scraping speed.
+            profile_strategies: Custom profile strategy order.
+                               Default: ["web_api", "graphql", "html_parse"]
+            posts_strategies: Custom posts strategy order.
+                             Default: ["web_api", "html_parse", "graphql", "mobile_feed"]
 
         Usage:
             ig = Instagram.anonymous()
             profile = ig.public.get_profile('cristiano')
-            posts = ig.public.get_posts('cristiano', max_count=12)
-            post = ig.public.get_post_by_url('https://instagram.com/p/ABC123/')
 
-            # Unlimited speed (no delays, no rate limits):
-            ig = Instagram.anonymous(unlimited=True)
+            # Custom strategy:
+            ig = Instagram.anonymous(
+                unlimited=True,
+                profile_strategies=["web_api", "html_parse"],
+                posts_strategies=["mobile_feed", "web_api"],
+            )
         """
         instance = cls(rate_limiting=not unlimited)
-        # Override anonymous client with unlimited flag
+        # Override anonymous client with unlimited flag + strategies
         instance._anon_client = AnonClient(
             anti_detect=instance._anti_detect,
             proxy_manager=instance._proxy_mgr,
             unlimited=unlimited,
+            profile_strategies=profile_strategies,
+            posts_strategies=posts_strategies,
         )
         instance.public = PublicAPI(instance._anon_client)
         instance.public_data = PublicDataAPI(instance.public)

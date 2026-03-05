@@ -1,6 +1,6 @@
 # Anonymous Scraping — Overview
 
-InstaHarvest v2's anonymous scraping system can access public Instagram data **without login** using a 5-strategy fallback chain.
+InstaHarvest v2's anonymous scraping system can access public Instagram data **without login** using a configurable fallback strategy chain.
 
 ## How It Works
 
@@ -8,29 +8,56 @@ InstaHarvest v2's anonymous scraping system can access public Instagram data **w
 graph LR
     A["Your Code"] --> B["PublicAPI"]
     B --> C["AnonClient"]
-    C --> S1["1. HTML Parse"]
-    S1 -->|fail| S2["2. Embed API"]
-    S2 -->|fail| S3["3. GraphQL"]
-    S3 -->|fail| S4["4. Mobile API"]
-    S4 -->|fail| S5["5. Web API"]
+    C --> S1["1. Web API ⭐"]
+    S1 -->|fail| S2["2. GraphQL"]
+    S2 -->|fail| S3["3. HTML Parse"]
     S1 -->|success| R["Return Data"]
     S2 -->|success| R
     S3 -->|success| R
-    S4 -->|success| R
-    S5 -->|success| R
+    style S1 fill:#2d7d46,color:#fff
 ```
 
+Default order: **Web API** (richest data) → **GraphQL** → **HTML Parse** (minimal).
 If one strategy fails (rate limited, blocked, etc.), it automatically tries the next one.
 
-## The 5 Strategies
+## Configurable Strategy Chain ⚡
 
-| # | Strategy | Endpoint | Speed | Data |
-|---|---|---|---|---|
-| 1 | HTML Parse | `instagram.com/{user}/` | Fast | Profile + meta |
-| 2 | Embed API | `instagram.com/p/{code}/embed/` | Fast | Post data |
-| 3 | GraphQL | `graphql/query/` | Medium | Full profile + posts |
-| 4 | Mobile API | `i.instagram.com/api/v1/` | Medium | Rich feed data |
-| 5 | Web API | `i.instagram.com/api/v1/` | Medium | Profile info |
+You can **customize** the strategy order:
+
+```python
+from instaharvest_v2 import Instagram, ProfileStrategy, PostsStrategy
+
+# Default — web_api first (best data):
+ig = Instagram.anonymous()
+
+# Custom order — try HTML first, then Web API:
+ig = Instagram.anonymous(
+    profile_strategies=["html_parse", "web_api"],
+    posts_strategies=["mobile_feed", "web_api"],
+)
+
+# Use only one strategy:
+ig = Instagram.anonymous(
+    profile_strategies=["web_api"],
+)
+```
+
+### Profile Strategies
+
+| Strategy | Enum | Data Richness |
+|---|---|---|
+| **Web API** | `ProfileStrategy.WEB_API` | ⭐⭐⭐ bio_links, category, business_email |
+| **GraphQL** | `ProfileStrategy.GRAPHQL` | ⭐⭐ followers, bio, posts_count |
+| **HTML Parse** | `ProfileStrategy.HTML_PARSE` | ⭐ followers, short bio only |
+
+### Posts Strategies
+
+| Strategy | Enum | Description |
+|---|---|---|
+| **Web API** | `PostsStrategy.WEB_API` | 12 posts from web_profile_info |
+| **HTML Parse** | `PostsStrategy.HTML_PARSE` | Embedded posts from HTML page |
+| **GraphQL** | `PostsStrategy.GRAPHQL` | GraphQL query (needs user_id) |
+| **Mobile Feed** | `PostsStrategy.MOBILE_FEED` | Rich data: video_url, location |
 
 ## Available Data (No Login)
 
@@ -63,6 +90,7 @@ ig = Instagram.anonymous()
 # Profile
 profile = ig.public.get_profile("cristiano")
 print(f"@{profile['username']}: {profile['followers']:,} followers")
+print(f"Strategy used: {profile['_strategy']}")  # web_api, graphql, or html_parse
 
 # Posts
 posts = ig.public.get_posts("cristiano")

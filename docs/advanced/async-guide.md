@@ -83,3 +83,34 @@ While Async is magical for bulk reading (scraping, public data, fetching details
 - Do not concurrently `follow()` 50 users at once.
 
 Async is designed to fetch gigabytes of data rapidly. Use it for read-heavy operations!
+
+## Strategy Chain Configuration
+
+Both sync and async clients support **configurable strategy chains** — control which strategies are used and in what order:
+
+```python
+from instaharvest_v2 import AsyncInstagram
+
+async def main():
+    # Default: web_api → graphql → html_parse
+    async with AsyncInstagram.anonymous(unlimited=True) as ig:
+        profile = await ig.public.get_profile("nike")
+        print(f"Strategy: {profile['_strategy']}")  # web_api
+
+    # Custom: only web_api and html_parse
+    async with AsyncInstagram.anonymous(
+        unlimited=True,
+        profile_strategies=["web_api", "html_parse"],
+        posts_strategies=["mobile_feed", "web_api"],
+    ) as ig:
+        profile = await ig.public.get_profile("nike")
+```
+
+### Available Strategies
+
+| Profile | Posts |
+|---|---|
+| `web_api` ⭐ (richest) | `web_api` |
+| `graphql` | `html_parse` |
+| `html_parse` | `graphql` |
+| | `mobile_feed` (video/location) |

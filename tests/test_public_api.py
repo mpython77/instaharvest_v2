@@ -248,3 +248,108 @@ class TestAsyncPublicLocation:
         with patch.object(async_public._client, 'get_location_sections', new_callable=AsyncMock, return_value=mock):
             result = await async_public.get_location_posts(123)
         assert result["location"]["name"] == "NY"
+
+
+# ═══════════════════════════════════════════════════════════
+# Strategy Configuration Tests
+# ═══════════════════════════════════════════════════════════
+
+class TestSyncStrategyConfig:
+    """Strategy config – sync client."""
+
+    def test_default_profile_strategies(self):
+        client = AnonClient(unlimited=True)
+        from instaharvest_v2.strategy import ProfileStrategy
+        assert client._profile_strategies[0] == ProfileStrategy.WEB_API
+
+    def test_default_posts_strategies(self):
+        client = AnonClient(unlimited=True)
+        from instaharvest_v2.strategy import PostsStrategy
+        assert client._posts_strategies[0] == PostsStrategy.WEB_API
+
+    def test_custom_profile_strategies(self):
+        from instaharvest_v2.strategy import ProfileStrategy
+        client = AnonClient(unlimited=True, profile_strategies=["html_parse", "web_api"])
+        assert client._profile_strategies == [ProfileStrategy.HTML_PARSE, ProfileStrategy.WEB_API]
+
+    def test_custom_posts_strategies(self):
+        from instaharvest_v2.strategy import PostsStrategy
+        client = AnonClient(unlimited=True, posts_strategies=["mobile_feed", "graphql"])
+        assert client._posts_strategies == [PostsStrategy.MOBILE_FEED, PostsStrategy.GRAPHQL]
+
+    def test_single_strategy(self):
+        from instaharvest_v2.strategy import ProfileStrategy
+        client = AnonClient(unlimited=True, profile_strategies=["web_api"])
+        assert len(client._profile_strategies) == 1
+        assert client._profile_strategies[0] == ProfileStrategy.WEB_API
+
+    def test_strategy_enum_accepted(self):
+        from instaharvest_v2.strategy import ProfileStrategy
+        client = AnonClient(unlimited=True, profile_strategies=[ProfileStrategy.GRAPHQL])
+        assert client._profile_strategies == [ProfileStrategy.GRAPHQL]
+
+
+class TestAsyncStrategyConfig:
+    """Strategy config – async client."""
+
+    def test_default_profile_strategies(self):
+        client = AsyncAnonClient(unlimited=True)
+        from instaharvest_v2.strategy import ProfileStrategy
+        assert client._profile_strategies[0] == ProfileStrategy.WEB_API
+
+    def test_default_posts_strategies(self):
+        client = AsyncAnonClient(unlimited=True)
+        from instaharvest_v2.strategy import PostsStrategy
+        assert client._posts_strategies[0] == PostsStrategy.WEB_API
+
+    def test_custom_profile_strategies(self):
+        from instaharvest_v2.strategy import ProfileStrategy
+        client = AsyncAnonClient(unlimited=True, profile_strategies=["html_parse"])
+        assert client._profile_strategies == [ProfileStrategy.HTML_PARSE]
+
+    def test_custom_posts_strategies(self):
+        from instaharvest_v2.strategy import PostsStrategy
+        client = AsyncAnonClient(unlimited=True, posts_strategies=["mobile_feed", "web_api"])
+        assert client._posts_strategies == [PostsStrategy.MOBILE_FEED, PostsStrategy.WEB_API]
+
+
+class TestFactoryStrategyPassThrough:
+    """Strategy params pass through factory methods."""
+
+    def test_sync_factory_passes_strategies(self):
+        from instaharvest_v2.instagram import Instagram
+        from instaharvest_v2.strategy import ProfileStrategy, PostsStrategy
+        ig = Instagram.anonymous(
+            unlimited=True,
+            profile_strategies=["html_parse", "web_api"],
+            posts_strategies=["mobile_feed"],
+        )
+        assert ig._anon_client._profile_strategies == [ProfileStrategy.HTML_PARSE, ProfileStrategy.WEB_API]
+        assert ig._anon_client._posts_strategies == [PostsStrategy.MOBILE_FEED]
+        ig.close()
+
+    def test_async_factory_passes_strategies(self):
+        from instaharvest_v2.async_instagram import AsyncInstagram
+        from instaharvest_v2.strategy import ProfileStrategy, PostsStrategy
+        ig = AsyncInstagram.anonymous(
+            unlimited=True,
+            profile_strategies=["graphql"],
+            posts_strategies=["web_api", "html_parse"],
+        )
+        assert ig._anon_client._profile_strategies == [ProfileStrategy.GRAPHQL]
+        assert ig._anon_client._posts_strategies == [PostsStrategy.WEB_API, PostsStrategy.HTML_PARSE]
+
+    def test_sync_factory_default_strategies(self):
+        from instaharvest_v2.instagram import Instagram
+        from instaharvest_v2.strategy import ProfileStrategy
+        ig = Instagram.anonymous(unlimited=True)
+        # default first is web_api
+        assert ig._anon_client._profile_strategies[0] == ProfileStrategy.WEB_API
+        ig.close()
+
+    def test_async_factory_default_strategies(self):
+        from instaharvest_v2.async_instagram import AsyncInstagram
+        from instaharvest_v2.strategy import ProfileStrategy
+        ig = AsyncInstagram.anonymous(unlimited=True)
+        assert ig._anon_client._profile_strategies[0] == ProfileStrategy.WEB_API
+

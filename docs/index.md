@@ -4,7 +4,7 @@
 
 ## Powerful Instagram Private API Library
 
-**curl_cffi** engine · **5-strategy** anonymous scraping · **True async** · **Anti-detection** · **AI Agent**
+**curl_cffi** engine · **Configurable strategy** anonymous scraping · **True async** · **Anti-detection** · **AI Agent**
 
 [:material-download: Install](#installation){ .md-button .md-button--primary }
 [:material-book-open-variant: Quick Start](getting-started/quick-start.md){ .md-button }
@@ -17,14 +17,14 @@
 
 | Feature | InstaHarvest v2 | instagrapi | instaloader |
 |---|---|---|---|
-| Anonymous scraping | ✅ 5 strategies | ⚠️ Limited | ⚠️ Basic |
+| Anonymous scraping | ✅ Configurable strategies | ⚠️ Limited | ⚠️ Basic |
 | Async support | ✅ 32 async modules | ❌ | ❌ |
 | TLS fingerprint | ✅ 10+ browsers | ❌ | ❌ |
 | Speed modes | ✅ 4 modes | ❌ | ❌ |
 | Proxy management | ✅ Built-in | ⚠️ Basic | ❌ |
 | AI Agent | ✅ 13 providers | ❌ | ❌ |
 | Advanced tools | ✅ 12 tools | ❌ | ❌ |
-| CI/CD + Tests | ✅ 475 tests | ⚠️ Basic | ⚠️ Basic |
+| CI/CD + Tests | ✅ 489 tests | ⚠️ Basic | ⚠️ Basic |
 
 ## Key Features
 
@@ -34,7 +34,7 @@
 
     ---
 
-    5-strategy fallback chain — HTML, Embed, GraphQL, Mobile, Web API.
+    Configurable strategy fallback chain — Web API, GraphQL, HTML, Embed, Mobile.
     No login needed for public data.
 
 - :material-lightning-bolt:{ .lg .middle } **Speed Modes**
@@ -88,7 +88,7 @@
 
     ---
 
-    475 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build.
+    489 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build.
 
 </div>
 

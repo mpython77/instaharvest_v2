@@ -4,7 +4,7 @@ Public API
 High-level interface for anonymous Instagram data access.
 No login, no cookies — purely public data.
 
-Uses AnonClient's 5-strategy fallback chain under the hood.
+Uses AnonClient's configurable strategy fallback chain under the hood.
 """
 
 import re
@@ -42,7 +42,7 @@ class PublicAPI:
         """
         Get public profile (anonymous — no login needed).
 
-        Uses fallback chain: HTML parse → Web API → GraphQL.
+        Uses configurable fallback chain. Default: Web API → GraphQL → HTML parse.
 
         Args:
             username: Instagram username (without @)
@@ -154,10 +154,8 @@ class PublicAPI:
         """
         Get user's public posts (anonymous).
 
-        Strategy:
-        1. Web API (web_profile_info) — returns 12 posts with full data
-        2. HTML parse — embedded posts (fallback)
-        3. GraphQL with user_id (fallback)
+        Strategy order is controlled by client._posts_strategies.
+        Default: web_api → html_parse → graphql → mobile_feed.
 
         Args:
             username: Instagram username
@@ -166,47 +164,64 @@ class PublicAPI:
         Returns:
             List of post dicts
         """
+        from ..strategy import PostsStrategy
+
         username = username.lstrip("@").strip().lower()
-
-        # Strategy 1: Web API — best source, returns 12 posts
-        web_profile = self._client.get_web_profile(username)
-        if web_profile:
-            media = web_profile.get("edge_owner_to_timeline_media", {})
-            edges = media.get("edges", [])
-            if edges:
-                posts = self._client._parse_timeline_edges(edges)
-                if posts:
-                    return posts[:max_count]
-
-        # Strategy 2: HTML parse gives us embedded posts
-        profile = self._client.get_profile_html(username)
-        if profile and profile.get("recent_posts"):
-            posts = profile["recent_posts"][:max_count]
-            if posts:
-                return posts
-
-        # Strategy 3: GraphQL with user_id
+        web_profile = None
+        profile = None
         user_id = None
-        if web_profile:
-            user_id = web_profile.get("id")
-        if not user_id and profile:
-            user_id = profile.get("user_id")
 
-        if user_id:
-            gql_data = self._client.get_user_posts_graphql(
-                str(user_id), first=min(max_count, 50)
-            )
-            if gql_data:
-                edges = gql_data.get("edges", [])
-                posts = self._client._parse_timeline_edges(edges)
-                if posts:
-                    return posts[:max_count]
+        for strategy in self._client._posts_strategies:
+            try:
+                if strategy == PostsStrategy.WEB_API:
+                    if web_profile is None:
+                        web_profile = self._client.get_web_profile(username)
+                    if web_profile:
+                        media = web_profile.get("edge_owner_to_timeline_media", {})
+                        edges = media.get("edges", [])
+                        if edges:
+                            posts = self._client._parse_timeline_edges(edges)
+                            if posts:
+                                return posts[:max_count]
 
-        # Strategy 4: Mobile feed API (with user_id)
-        if user_id:
-            feed = self._client.get_user_feed_mobile(str(user_id), count=min(max_count, 33))
-            if feed and feed.get("items"):
-                return feed["items"][:max_count]
+                elif strategy == PostsStrategy.HTML_PARSE:
+                    if profile is None:
+                        profile = self._client.get_profile_html(username)
+                    if profile and profile.get("recent_posts"):
+                        posts = profile["recent_posts"][:max_count]
+                        if posts:
+                            return posts
+
+                elif strategy == PostsStrategy.GRAPHQL:
+                    if user_id is None:
+                        if web_profile:
+                            user_id = web_profile.get("id")
+                        if not user_id and profile:
+                            user_id = profile.get("user_id")
+                    if user_id:
+                        gql_data = self._client.get_user_posts_graphql(
+                            str(user_id), first=min(max_count, 50)
+                        )
+                        if gql_data:
+                            edges = gql_data.get("edges", [])
+                            posts = self._client._parse_timeline_edges(edges)
+                            if posts:
+                                return posts[:max_count]
+
+                elif strategy == PostsStrategy.MOBILE_FEED:
+                    if user_id is None:
+                        if web_profile:
+                            user_id = web_profile.get("id")
+                        if not user_id and profile:
+                            user_id = profile.get("user_id")
+                    if user_id:
+                        feed = self._client.get_user_feed_mobile(str(user_id), count=min(max_count, 33))
+                        if feed and feed.get("items"):
+                            return feed["items"][:max_count]
+
+            except Exception as e:
+                logger.debug(f"[Public] Posts strategy {strategy.value} failed: {e}")
+                continue
 
         return []
 

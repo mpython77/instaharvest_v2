@@ -4,7 +4,7 @@ Async Public API
 True async interface for anonymous Instagram data access.
 No login, no cookies — purely public data with real parallelism.
 
-Uses AsyncAnonClient's 5-strategy fallback chain under the hood.
+Uses AsyncAnonClient's configurable strategy fallback chain under the hood.
 """
 
 import asyncio
@@ -47,7 +47,7 @@ class AsyncPublicAPI:
         """
         Get public profile (anonymous, async).
 
-        Uses fallback chain: HTML parse → Web API → GraphQL.
+        Uses configurable fallback chain. Default: Web API → GraphQL → HTML parse.
 
         Args:
             username: Instagram username (without @)
@@ -134,48 +134,68 @@ class AsyncPublicAPI:
     ) -> List[Dict[str, Any]]:
         """
         Get user's public posts (anonymous, async).
+
+        Strategy order is controlled by client._posts_strategies.
+        Default: web_api → html_parse → graphql → mobile_feed.
         """
+        from ..strategy import PostsStrategy
+
         username = username.lstrip("@").strip().lower()
-
-        # Strategy 1: Web API
-        web_profile = await self._client.get_web_profile(username)
-        if web_profile:
-            media = web_profile.get("edge_owner_to_timeline_media", {})
-            edges = media.get("edges", [])
-            if edges:
-                posts = self._client._parse_timeline_edges(edges)
-                if posts:
-                    return posts[:max_count]
-
-        # Strategy 2: HTML parse
-        profile = await self._client.get_profile_html(username)
-        if profile and profile.get("recent_posts"):
-            posts = profile["recent_posts"][:max_count]
-            if posts:
-                return posts
-
-        # Strategy 3: GraphQL
+        web_profile = None
+        profile = None
         user_id = None
-        if web_profile:
-            user_id = web_profile.get("id")
-        if not user_id and profile:
-            user_id = profile.get("user_id")
 
-        if user_id:
-            gql_data = await self._client.get_user_posts_graphql(
-                str(user_id), first=min(max_count, 50)
-            )
-            if gql_data:
-                edges = gql_data.get("edges", [])
-                posts = self._client._parse_timeline_edges(edges)
-                if posts:
-                    return posts[:max_count]
+        for strategy in self._client._posts_strategies:
+            try:
+                if strategy == PostsStrategy.WEB_API:
+                    if web_profile is None:
+                        web_profile = await self._client.get_web_profile(username)
+                    if web_profile:
+                        media = web_profile.get("edge_owner_to_timeline_media", {})
+                        edges = media.get("edges", [])
+                        if edges:
+                            posts = self._client._parse_timeline_edges(edges)
+                            if posts:
+                                return posts[:max_count]
 
-        # Strategy 4: Mobile Feed API
-        if user_id:
-            feed_data = await self._client.get_user_feed_mobile(user_id, count=max_count)
-            if feed_data and feed_data.get("items"):
-                return feed_data["items"][:max_count]
+                elif strategy == PostsStrategy.HTML_PARSE:
+                    if profile is None:
+                        profile = await self._client.get_profile_html(username)
+                    if profile and profile.get("recent_posts"):
+                        posts = profile["recent_posts"][:max_count]
+                        if posts:
+                            return posts
+
+                elif strategy == PostsStrategy.GRAPHQL:
+                    if user_id is None:
+                        if web_profile:
+                            user_id = web_profile.get("id")
+                        if not user_id and profile:
+                            user_id = profile.get("user_id")
+                    if user_id:
+                        gql_data = await self._client.get_user_posts_graphql(
+                            str(user_id), first=min(max_count, 50)
+                        )
+                        if gql_data:
+                            edges = gql_data.get("edges", [])
+                            posts = self._client._parse_timeline_edges(edges)
+                            if posts:
+                                return posts[:max_count]
+
+                elif strategy == PostsStrategy.MOBILE_FEED:
+                    if user_id is None:
+                        if web_profile:
+                            user_id = web_profile.get("id")
+                        if not user_id and profile:
+                            user_id = profile.get("user_id")
+                    if user_id:
+                        feed_data = await self._client.get_user_feed_mobile(user_id, count=max_count)
+                        if feed_data and feed_data.get("items"):
+                            return feed_data["items"][:max_count]
+
+            except Exception as e:
+                logger.debug(f"[AsyncPublic] Posts strategy {strategy.value} failed: {e}")
+                continue
 
         return []
 

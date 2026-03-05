@@ -128,5 +128,5 @@ asyncio.run(main())
 ## Next Steps
 
 - [Configuration](configuration.md) — Learn about `.env`, proxies, and speed modes
-- [Anonymous Scraping](../anonymous/overview.md) — Deep dive into 5-strategy scraping
+- [Anonymous Scraping](../anonymous/overview.md) — Deep dive into configurable strategy scraping
 - [Async Guide](../advanced/async-guide.md) — Master async operations
