@@ -177,17 +177,25 @@ ig.media.edit_caption(media_pk, "New caption")
 ig.media.pin_comment(media_pk, comment_pk)
 ```
 
-### 📰 Feed
+### 📰 Feed (GraphQL v2 + REST fallback)
 
 ```python
-ig.feed.get_user_feed(user_pk)
-posts = ig.feed.get_all_posts(user_pk, max_posts=100)
-ig.feed.get_liked()
-ig.feed.get_saved()
-ig.feed.get_tag_feed("fashion")
-ig.feed.get_location_feed(location_pk)
-ig.feed.get_timeline()
-ig.feed.get_reels_feed()
+# Home feed (GraphQL v2 — tez va ishonchli)
+timeline = ig.feed.get_timeline(count=12)     # → {posts, has_next, end_cursor}
+all_tl = ig.feed.get_all_timeline(max=50)     # full pagination
+
+# User posts
+ig.feed.get_user_feed(user_pk)                # REST endpoint
+posts = ig.feed.get_all_posts(user_pk, max_posts=100, delay=2)
+
+# Reels (GraphQL v2)
+reels = ig.feed.get_reels_feed(count=10)      # Trending reels
+
+# Saved/Liked/Tag
+ig.feed.get_saved()                           # Saqlangan to'plamlar
+ig.feed.get_liked()                           # Like bosgan postlar
+ig.feed.get_tag_feed("fashion")               # Hashtag bo'yicha
+ig.feed.get_location_feed(location_pk)        # Lokatsiya bo'yicha
 ```
 
 ### 📖 Stories
@@ -289,6 +297,76 @@ ig.graphql.get_followers(user_pk)      # GraphQL queries
 ig.location.search("New York")         # Location search
 ig.collections.get_list()              # Saved collections
 ```
+
+### 🔬 GraphQL API v2 (Modern doc_id Transport)
+
+Direct access to Instagram's modern GraphQL endpoints with verified doc_ids.
+All methods use POST `/graphql/query` — faster and more reliable than REST.
+
+```python
+# 👤 Profile — mini profil info (tez va yengil)
+card = ig.graphql.get_hover_card(user_id="173560420", username="cristiano")
+print(card["follower_count"])    # 650000000
+print(card["biography"])         # bio text
+print(card["is_verified"])       # True
+print(card["mutual_followers"])  # [{username, pk, ...}]
+
+# 🔗 Similar accounts — o'xshash akkauntlar (80+ ta!)
+suggested = ig.graphql.get_suggested_users(user_id="173560420")
+for user in suggested["users"]:
+    print(f"@{user['username']} | {user['full_name']}")
+# → @messi, @neymar, @ronaldo, ... (80 ta o'xshash akkaunt)
+
+# 📷 User posts (GraphQL — paginatsiya bilan)
+data = ig.graphql.get_user_posts_v2("cristiano")
+for post in data["posts"]:
+    print(f"{post['shortcode']} | ❤️{post['like_count']} | {post['caption'][:50]}")
+
+# 💬 Comments (GraphQL v2)
+data = ig.graphql.get_comments_v2(media_pk="3843229444966511752", count=20)
+for c in data["comments"]:
+    print(f"@{c['user']['username']}: {c['text'][:50]} | ❤️{c['like_count']}")
+
+# ❤️ Like a post (mutation)
+result = ig.graphql.like_media(media_id="3843229444966511752")
+print(result["success"])  # True
+
+# 📺 Home timeline (GraphQL v2 — root + pagination)
+timeline = ig.graphql.get_timeline_v2(count=12)
+for post in timeline["posts"]:
+    print(f"@{post['user']['username']} | {post['product_type']} | ❤️{post['like_count']}")
+
+# 🎬 Trending reels
+reels = ig.graphql.get_reels_trending_v2(count=10)
+for reel in reels["posts"]:
+    print(f"@{reel['user']['username']} | ❤️{reel['like_count']}")
+
+# 🔖 Saved collections
+saved = ig.graphql.get_saved_v2()
+for col in saved["posts"]:
+    print(f"{col['collection_name']} | {col['media_count']} items")
+```
+
+**Available doc_ids (16 verified):**
+
+| Key | Endpoint | Status |
+|-----|----------|--------|
+| `profile_posts` | User posts pagination | ✅ Verified |
+| `profile_reels` | User reels tab | ✅ Verified |
+| `profile_tagged` | User tagged posts | ✅ Verified |
+| `profile_hover_card` | Mini profile popup | ✅ Verified |
+| `profile_highlights` | Story highlights tray | ✅ Verified |
+| `profile_suggested` | Similar accounts | ✅ Verified |
+| `feed_timeline` | Home feed (initial) | ✅ Verified |
+| `feed_timeline_pagination` | Home feed (scroll) | ✅ Verified |
+| `feed_reels_trending` | Trending reels | ✅ Verified |
+| `feed_saved` | Saved collections | ✅ Verified |
+| `media_comments` | Post comments | ✅ Verified |
+| `like_media` | Like mutation | ✅ Verified |
+| `stories_seen` | Story seen mutation | ✅ Stored |
+| `search_null_state` | Search initial state | ✅ Stored |
+| `feed_liked` | Liked posts | REST fallback |
+| `feed_tag` | Hashtag feed | REST fallback |
 
 ---
 
