@@ -43,6 +43,8 @@ from .exceptions import (
 )
 # (AsyncChallengeHandler already imported above)
 from .smart_rotation import SmartRotationCoordinator, RotationContext, _mask_proxy
+from .fb_dtsg import AsyncFbDtsgProvider
+
 
 logger = logging.getLogger("instaharvest_v2.async")
 
@@ -82,6 +84,8 @@ class AsyncHttpClient:
         self._events = event_emitter
         self._async_session: Optional[AsyncSession] = None
         self._is_refreshing = False  # Guard against infinite recursion in challenge/refresh
+        self._fb_dtsg_provider = AsyncFbDtsgProvider()
+
 
         # Smart rotation coordinator
         self._rotation = SmartRotationCoordinator(anti_detect, proxy_manager)
@@ -198,6 +202,16 @@ class AsyncHttpClient:
                         if backoff_delay > 0:
                             await asyncio.sleep(backoff_delay)
 
+                    # Auto-fetch fb_dtsg for POST requests
+                    if method == "POST" and self._fb_dtsg_provider:
+                        try:
+                            curl_sess_for_dtsg = self._get_async_session()
+                            await self._fb_dtsg_provider.ensure_token(
+                                sess, curl_session=curl_sess_for_dtsg
+                            )
+                        except Exception as e:
+                            logger.debug(f"fb_dtsg fetch skipped: {e}")
+
                     # Debug: log outgoing request
                     dbg = get_debug_logger()
                     dbg.request(
@@ -239,11 +253,20 @@ class AsyncHttpClient:
                     if not (raw_data and raw_headers):
                         if sess.user_agent:
                             headers["user-agent"] = sess.user_agent
-                            for key in list(headers.keys()):
-                                if key.startswith("sec-ch-"):
-                                    del headers[key]
+                            # Replace generic sec-ch-ua with session fingerprint
+                            if sess.fingerprint and sess.fingerprint.sec_ch_ua:
+                                headers["sec-ch-ua"] = sess.fingerprint.sec_ch_ua
+                                headers["sec-ch-ua-mobile"] = "?0"
+                                headers["sec-ch-ua-platform"] = sess.fingerprint.sec_ch_ua_platform
+                                headers["sec-ch-ua-full-version-list"] = sess.fingerprint.sec_ch_ua_full_version_list
+                            else:
+                                for key in list(headers.keys()):
+                                    if key.startswith("sec-ch-"):
+                                        del headers[key]
                         if sess.ig_www_claim:
                             headers["x-ig-www-claim"] = sess.ig_www_claim
+                        if sess.x_instagram_ajax:
+                            headers["x-instagram-ajax"] = sess.x_instagram_ajax
                         headers.setdefault("x-asbd-id", "359341")
                         headers["cookie"] = sess.cookie_string
 
@@ -271,6 +294,10 @@ class AsyncHttpClient:
                     if raw_data and method == "POST":
                         kwargs["data"] = raw_data
                     elif data and method == "POST":
+                        # Inject fb_dtsg into POST data if available
+                        if sess.fb_dtsg and isinstance(data, dict):
+                            data.setdefault("fb_dtsg", sess.fb_dtsg)
+                            data.setdefault("jazoest", sess.jazoest)
                         kwargs["data"] = data
 
                     # async request
@@ -483,6 +510,8 @@ class AsyncHttpClient:
             except Exception:
                 pass
             self._async_session = None
+
+
 
     async def __aenter__(self):
         return self

@@ -180,7 +180,7 @@ ig.media.pin_comment(media_pk, comment_pk)
 ### 📰 Feed (GraphQL v2 + REST fallback)
 
 ```python
-# Home feed (GraphQL v2 — tez va ishonchli)
+# Home feed (GraphQL v2 — fast and reliable)
 timeline = ig.feed.get_timeline(count=12)     # → {posts, has_next, end_cursor}
 all_tl = ig.feed.get_all_timeline(max=50)     # full pagination
 
@@ -192,10 +192,10 @@ posts = ig.feed.get_all_posts(user_pk, max_posts=100, delay=2)
 reels = ig.feed.get_reels_feed(count=10)      # Trending reels
 
 # Saved/Liked/Tag
-ig.feed.get_saved()                           # Saqlangan to'plamlar
-ig.feed.get_liked()                           # Like bosgan postlar
-ig.feed.get_tag_feed("fashion")               # Hashtag bo'yicha
-ig.feed.get_location_feed(location_pk)        # Lokatsiya bo'yicha
+ig.feed.get_saved()                           # Saved collections
+ig.feed.get_liked()                           # Liked posts
+ig.feed.get_tag_feed("fashion")               # By hashtag
+ig.feed.get_location_feed(location_pk)        # By location
 ```
 
 ### 📖 Stories
@@ -304,14 +304,14 @@ Direct access to Instagram's modern GraphQL endpoints with verified doc_ids.
 All methods use POST `/graphql/query` — faster and more reliable than REST.
 
 ```python
-# 👤 Profile — mini profil info (tez va yengil)
+# 👤 Profile — mini profile info (fast and lightweight)
 card = ig.graphql.get_hover_card(user_id="173560420", username="cristiano")
 print(card["follower_count"])    # 650000000
 print(card["biography"])         # bio text
 print(card["is_verified"])       # True
 print(card["mutual_followers"])  # [{username, pk, ...}]
 
-# 🔗 Similar accounts — o'xshash akkauntlar (80+ ta!)
+# 🔗 Similar accounts (80+ !)
 suggested = ig.graphql.get_suggested_users(user_id="173560420")
 for user in suggested["users"]:
     print(f"@{user['username']} | {user['full_name']}")

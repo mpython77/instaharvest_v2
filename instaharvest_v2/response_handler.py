@@ -144,12 +144,25 @@ class ResponseHandler:
         if status == 404:
             raise NotFoundError("Resource not found", status_code=404)
 
-        # ─── 3xx Redirect (POST with allow_redirects=False) ───
+        # ─── 3xx Redirect ──────────────────────────────────
+        # POST redirects almost always mean login page redirect
         if 300 <= status < 400:
+            location = response.headers.get("location", "")
             try:
-                return response.json()
+                body = response.json()
+                return body
             except Exception:
-                return {"status": "ok", "redirected": True}
+                # POST redirect to login = session expired
+                logger.warning(
+                    f"[ResponseHandler] {status} redirect → {location}"
+                )
+                if "login" in location.lower() or "accounts" in location.lower() or not location:
+                    self._session_mgr.report_error(session, is_login_error=True)
+                    raise LoginRequired(
+                        f"POST redirected ({status}) → {location or 'unknown'}. Session expired.",
+                        status_code=status,
+                    )
+                return {"status": "redirected", "location": location, "redirected": True}
 
         # ─── 400/403 Client Errors ────────────────────────────
         if status in (400, 403):

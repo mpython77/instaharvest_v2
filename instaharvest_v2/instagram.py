@@ -375,6 +375,21 @@ class Instagram:
 
     # ─── SESSION CONVENIENCE ─────────────────────────────────
 
+    def warm_up(self) -> bool:
+        """
+        Warm up the session by loading instagram.com.
+
+        Captures x-ig-www-claim (HMAC token) and x-instagram-ajax (build hash).
+        Called automatically on first request, but can be called manually.
+
+        Returns:
+            True if warm-up was successful
+        """
+        sess = self._session_mgr.get_session()
+        if not sess:
+            return False
+        return self._client._warm_up_session(sess)
+
     def save_session(self, filepath: str = "session.json") -> None:
         """Save current session to file. Shortcut for ig.auth.save_session()."""
         self.auth.save_session(filepath)
@@ -450,6 +465,62 @@ class Instagram:
         instance.public = PublicAPI(instance._anon_client)
         instance.public_data = PublicDataAPI(instance.public)
         return instance
+
+    @classmethod
+    def from_cookie_file(
+        cls,
+        cookie_path: str,
+        debug: bool = False,
+        **kwargs,
+    ) -> "Instagram":
+        """
+        Create client from browser-exported cookie JSON file.
+
+        The file should be a JSON array of cookie objects exported
+        from browser (e.g. via EditThisCookie or Cookie-Editor):
+            [{"name": "sessionid", "value": "...", "domain": ".instagram.com"}, ...]
+
+        Usage:
+            ig = Instagram.from_cookie_file("cookies.json")
+            user = ig.users.get_by_username("cristiano")
+        """
+        instance = cls(debug=debug, **kwargs)
+        sess = instance._session_mgr.load_from_browser_cookies(cookie_path)
+        if not sess:
+            raise ValueError(f"Failed to load cookies from {cookie_path}")
+        return instance
+
+    @classmethod
+    def from_cookie_dir(
+        cls,
+        dir_path: str,
+        debug: bool = False,
+        **kwargs,
+    ) -> "Instagram":
+        """
+        Create client with multiple sessions from a directory of cookie files.
+
+        Each .json file in the directory should contain browser-exported cookies.
+        Sessions are used in round-robin rotation.
+
+        Usage:
+            ig = Instagram.from_cookie_dir("./sessions/")
+            # Uses different session for each request
+            user1 = ig.users.get_by_username("cristiano")
+            user2 = ig.users.get_by_username("messi")
+
+            # Check pool health
+            print(ig.pool_status())
+        """
+        instance = cls(debug=debug, **kwargs)
+        count = instance._session_mgr.load_from_cookie_dir(dir_path)
+        if count == 0:
+            raise ValueError(f"No valid cookie files found in {dir_path}")
+        return instance
+
+    def pool_status(self) -> dict:
+        """Get session pool monitoring status. See SessionManager.get_pool_status()."""
+        return self._session_mgr.get_pool_status()
 
     # ─── LOGIN CONVENIENCE ───────────────────────────────────
 

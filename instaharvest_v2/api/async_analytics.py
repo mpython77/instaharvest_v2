@@ -1,7 +1,22 @@
 """
-Async Analytics API — Account Analytics & Engagement
-=====================================================
-Async version of AnalyticsAPI. Full feature parity.
+Analytics API — Account Analytics & Engagement
+===============================================
+Calculate engagement rates, find best posting times,
+analyze content performance, generate profile summaries.
+
+Usage:
+    ig = Instagram.from_env(".env")
+
+    # Engagement rate
+    rate = ig.analytics.engagement_rate("cristiano")
+    print(f"Engagement: {rate['engagement_rate']}%")
+
+    # Best posting times
+    times = ig.analytics.best_posting_times("cristiano")
+    print(f"Best hour: {times['best_hours'][0]}")
+
+    # Full profile summary
+    summary = ig.analytics.profile_summary("cristiano")
 """
 
 import logging
@@ -14,9 +29,9 @@ logger = logging.getLogger("instaharvest_v2.analytics")
 
 class AsyncAnalyticsAPI:
     """
-    Async Instagram account analytics.
+    Instagram account analytics.
 
-    Composes: AsyncUsersAPI, AsyncMediaAPI, AsyncFeedAPI.
+    Composes: UsersAPI, MediaAPI, FeedAPI.
     """
 
     def __init__(self, client, users_api, media_api, feed_api):
@@ -24,6 +39,10 @@ class AsyncAnalyticsAPI:
         self._users = users_api
         self._media = media_api
         self._feed = feed_api
+
+    # ═══════════════════════════════════════════════════════════
+    # ENGAGEMENT RATE
+    # ═══════════════════════════════════════════════════════════
 
     async def engagement_rate(
         self,
@@ -48,42 +67,66 @@ class AsyncAnalyticsAPI:
                 - posts_analyzed: int
                 - rating: str (excellent/good/average/low)
         """
-        user = await self._users.get_by_username(username)
-        user_id = user.pk if hasattr(user, "pk") else user.get("pk", 0)
-        followers = user.followers if hasattr(user, "followers") else user.get("follower_count", 0)
-
+        user = self._users.get_by_username(username)
+        followers = getattr(user, "followers", 0) or getattr(user, "follower_count", 0)
         if not followers:
-            return {"engagement_rate": 0, "error": "No followers data"}
+            followers = (user.get("followers", 0) if isinstance(user, dict) else 0) or 1
+        user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
-        posts = await self._fetch_posts(user_id, count=post_count)
+        posts = await self._fetch_posts(user_id, post_count)
         if not posts:
-            return {"engagement_rate": 0, "error": "No posts found"}
+            return {
+                "engagement_rate": 0.0,
+                "avg_likes": 0,
+                "avg_comments": 0,
+                "followers": followers,
+                "posts_analyzed": 0,
+                "rating": "no_data",
+            }
 
-        total_likes = sum(self._get_likes(p) for p in posts)
-        total_comments = sum(self._get_comments(p) for p in posts)
-        count = len(posts)
+        total_likes = sum(await self._get_likes(p) for p in posts)
+        total_comments = sum(await self._get_comments(p) for p in posts)
+        n = len(posts)
 
-        avg_likes = total_likes / count
-        avg_comments = total_comments / count
-        rate = (avg_likes + avg_comments) / followers * 100
+        avg_likes = total_likes / n
+        avg_comments = total_comments / n
+        rate = (avg_likes + avg_comments) / max(followers, 1) * 100
 
-        if rate > 6:
+        # Rating scale
+        if rate >= 6:
             rating = "excellent"
-        elif rate > 3:
+        elif rate >= 3:
+            rating = "very_good"
+        elif rate >= 1:
             rating = "good"
-        elif rate > 1:
+        elif rate >= 0.5:
             rating = "average"
         else:
             rating = "low"
 
-        return {
+        result = {
             "engagement_rate": round(rate, 2),
             "avg_likes": round(avg_likes, 1),
             "avg_comments": round(avg_comments, 1),
+            "total_likes": total_likes,
+            "total_comments": total_comments,
             "followers": followers,
-            "posts_analyzed": count,
+            "posts_analyzed": n,
             "rating": rating,
+            "likes_per_post": [await self._get_likes(p) for p in posts],
+            "comments_per_post": [await self._get_comments(p) for p in posts],
         }
+
+        logger.info(
+            f"📊 Engagement @{username}: {rate:.2f}% ({rating}) | "
+            f"avg_likes={avg_likes:.0f} avg_comments={avg_comments:.0f} | "
+            f"followers={followers:,}"
+        )
+        return result
+
+    # ═══════════════════════════════════════════════════════════
+    # BEST POSTING TIMES
+    # ═══════════════════════════════════════════════════════════
 
     async def best_posting_times(
         self,
@@ -99,69 +142,100 @@ class AsyncAnalyticsAPI:
 
         Returns:
             dict:
-                - best_hours: list of best hours (0-23)
-                - best_days: list of best days
+                - best_hours: list of (hour, avg_engagement) sorted by engagement
+                - best_days: list of (day_name, avg_engagement)
+                - hourly_breakdown: dict {hour: {posts, avg_likes, avg_comments}}
                 - daily_breakdown: dict {day: {posts, avg_likes, avg_comments}}
         """
-        user = await self._users.get_by_username(username)
-        user_id = user.pk if hasattr(user, "pk") else user.get("pk", 0)
-        posts = await self._fetch_posts(user_id, count=post_count)
+        user = self._users.get_by_username(username)
+        user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
+        followers = getattr(user, "followers", 0) or getattr(user, "follower_count", 0) or 1
 
-        hour_stats: Dict[int, Dict] = defaultdict(lambda: {"likes": 0, "comments": 0, "count": 0})
-        day_stats: Dict[str, Dict] = defaultdict(lambda: {"likes": 0, "comments": 0, "count": 0})
+        posts = await self._fetch_posts(user_id, post_count)
+        if not posts:
+            return {"best_hours": [], "best_days": [], "hourly_breakdown": {}, "daily_breakdown": {}}
 
-        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        hourly = defaultdict(lambda: {"posts": 0, "likes": 0, "comments": 0})
+        daily = defaultdict(lambda: {"posts": 0, "likes": 0, "comments": 0})
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
         for post in posts:
-            ts = self._get_timestamp(post)
+            ts = await self._get_timestamp(post)
             if not ts:
                 continue
             try:
                 dt = datetime.fromtimestamp(ts)
-                hour = dt.hour
-                day = days[dt.weekday()]
-                likes = self._get_likes(post)
-                comments = self._get_comments(post)
-
-                hour_stats[hour]["likes"] += likes
-                hour_stats[hour]["comments"] += comments
-                hour_stats[hour]["count"] += 1
-
-                day_stats[day]["likes"] += likes
-                day_stats[day]["comments"] += comments
-                day_stats[day]["count"] += 1
             except (ValueError, OSError):
                 continue
 
-        # Find best hours by average engagement
-        hour_engagement = {}
-        for h, s in hour_stats.items():
-            if s["count"]:
-                hour_engagement[h] = (s["likes"] + s["comments"]) / s["count"]
-        best_hours = sorted(hour_engagement, key=hour_engagement.get, reverse=True)[:5]
+            hour = dt.hour
+            day = day_names[dt.weekday()]
+            likes = await self._get_likes(post)
+            comments = await self._get_comments(post)
 
-        # Find best days
-        day_engagement = {}
-        for d, s in day_stats.items():
-            if s["count"]:
-                day_engagement[d] = (s["likes"] + s["comments"]) / s["count"]
-        best_days = sorted(day_engagement, key=day_engagement.get, reverse=True)[:3]
+            hourly[hour]["posts"] += 1
+            hourly[hour]["likes"] += likes
+            hourly[hour]["comments"] += comments
+
+            daily[day]["posts"] += 1
+            daily[day]["likes"] += likes
+            daily[day]["comments"] += comments
+
+        # Calculate averages and engagement
+        hourly_breakdown = {}
+        for h in range(24):
+            if h in hourly and hourly[h]["posts"] > 0:
+                n = hourly[h]["posts"]
+                avg_l = hourly[h]["likes"] / n
+                avg_c = hourly[h]["comments"] / n
+                eng = (avg_l + avg_c) / max(followers, 1) * 100
+                hourly_breakdown[h] = {
+                    "posts": n,
+                    "avg_likes": round(avg_l, 1),
+                    "avg_comments": round(avg_c, 1),
+                    "engagement": round(eng, 3),
+                }
 
         daily_breakdown = {}
-        for d, s in day_stats.items():
-            c = max(s["count"], 1)
-            daily_breakdown[d] = {
-                "posts": s["count"],
-                "avg_likes": round(s["likes"] / c, 1),
-                "avg_comments": round(s["comments"] / c, 1),
-            }
+        for d in day_names:
+            if d in daily and daily[d]["posts"] > 0:
+                n = daily[d]["posts"]
+                avg_l = daily[d]["likes"] / n
+                avg_c = daily[d]["comments"] / n
+                eng = (avg_l + avg_c) / max(followers, 1) * 100
+                daily_breakdown[d] = {
+                    "posts": n,
+                    "avg_likes": round(avg_l, 1),
+                    "avg_comments": round(avg_c, 1),
+                    "engagement": round(eng, 3),
+                }
 
-        return {
-            "best_hours": best_hours,
-            "best_days": best_days,
+        best_hours = sorted(
+            hourly_breakdown.items(),
+            key=lambda x: x[1]["engagement"],
+            reverse=True,
+        )
+        best_days = sorted(
+            daily_breakdown.items(),
+            key=lambda x: x[1]["engagement"],
+            reverse=True,
+        )
+
+        result = {
+            "best_hours": [(h, data) for h, data in best_hours[:5]],
+            "best_days": [(d, data) for d, data in best_days],
+            "hourly_breakdown": hourly_breakdown,
             "daily_breakdown": daily_breakdown,
             "posts_analyzed": len(posts),
         }
+
+        if best_hours:
+            logger.info(f"📊 Best time @{username}: {best_hours[0][0]}:00 (eng={best_hours[0][1]['engagement']:.3f}%)")
+        return result
+
+    # ═══════════════════════════════════════════════════════════
+    # CONTENT ANALYSIS
+    # ═══════════════════════════════════════════════════════════
 
     async def content_analysis(
         self,
@@ -177,60 +251,101 @@ class AsyncAnalyticsAPI:
 
         Returns:
             dict:
-                - by_type: {photo, video, carousel} engagement
-                - caption_length_impact: correlation
+                - media_type_breakdown: performance by photo/video/carousel
+                - top_posts: top 5 posts by engagement
+                - worst_posts: bottom 5 posts
+                - avg_caption_length: int
                 - top_hashtags: most used hashtags
                 - posting_frequency: posts per week
         """
-        user = await self._users.get_by_username(username)
-        user_id = user.pk if hasattr(user, "pk") else user.get("pk", 0)
-        posts = await self._fetch_posts(user_id, count=post_count)
+        user = self._users.get_by_username(username)
+        user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
+        followers = getattr(user, "followers", 0) or getattr(user, "follower_count", 0) or 1
 
-        type_stats: Dict[str, Dict] = defaultdict(lambda: {"likes": 0, "comments": 0, "count": 0})
-        all_hashtags: List[str] = []
-        timestamps: List[float] = []
+        posts = await self._fetch_posts(user_id, post_count)
+        if not posts:
+            return {"media_type_breakdown": {}, "top_posts": [], "posting_frequency": 0}
+
+        # Analyze media types
+        type_stats = defaultdict(lambda: {"count": 0, "likes": 0, "comments": 0})
+        all_hashtags = Counter()
+        caption_lengths = []
+        timestamps = []
+        scored_posts = []
 
         for post in posts:
-            media_type = self._get_media_type(post)
-            likes = self._get_likes(post)
-            comments = self._get_comments(post)
+            media_type = await self._get_media_type(post)
+            likes = await self._get_likes(post)
+            comments = await self._get_comments(post)
+            caption = await self._get_caption(post)
+            ts = await self._get_timestamp(post)
 
+            type_stats[media_type]["count"] += 1
             type_stats[media_type]["likes"] += likes
             type_stats[media_type]["comments"] += comments
-            type_stats[media_type]["count"] += 1
 
-            caption = self._get_caption(post)
-            import re
-            tags = re.findall(r"#(\w+)", caption)
-            all_hashtags.extend(tags)
+            if caption:
+                caption_lengths.append(len(caption))
+                # Extract hashtags
+                import re
+                tags = re.findall(r"#(\w+)", caption)
+                all_hashtags.update(tags)
 
-            ts = self._get_timestamp(post)
             if ts:
                 timestamps.append(ts)
 
-        by_type = {}
-        for t, s in type_stats.items():
-            c = max(s["count"], 1)
-            by_type[t] = {
-                "count": s["count"],
-                "avg_likes": round(s["likes"] / c, 1),
-                "avg_comments": round(s["comments"] / c, 1),
+            engagement = (likes + comments) / max(followers, 1) * 100
+            scored_posts.append({
+                "shortcode": post.get("code") or post.get("shortcode", ""),
+                "media_type": media_type,
+                "likes": likes,
+                "comments": comments,
+                "engagement": round(engagement, 3),
+                "caption_preview": (caption or "")[:80],
+                "posted_at": datetime.fromtimestamp(ts).isoformat() if ts else None,
+            })
+
+        # Type breakdown
+        media_type_breakdown = {}
+        for mtype, stats in type_stats.items():
+            n = stats["count"]
+            media_type_breakdown[mtype] = {
+                "count": n,
+                "avg_likes": round(stats["likes"] / n, 1),
+                "avg_comments": round(stats["comments"] / n, 1),
+                "engagement": round((stats["likes"] / n + stats["comments"] / n) / max(followers, 1) * 100, 3),
             }
 
-        top_hashtags = [{"tag": tag, "count": cnt} for tag, cnt in Counter(all_hashtags).most_common(20)]
+        # Top/worst posts
+        scored_posts.sort(key=lambda p: p["engagement"], reverse=True)
 
-        freq = 0.0
+        # Posting frequency
+        posting_frequency = 0.0
         if len(timestamps) >= 2:
-            span_days = (max(timestamps) - min(timestamps)) / 86400
-            if span_days > 0:
-                freq = round(len(timestamps) / span_days * 7, 1)
+            time_span_days = (max(timestamps) - min(timestamps)) / 86400
+            if time_span_days > 0:
+                posting_frequency = round(len(timestamps) / time_span_days * 7, 1)
 
-        return {
-            "by_type": by_type,
-            "top_hashtags": top_hashtags,
-            "posting_frequency_per_week": freq,
+        result = {
+            "media_type_breakdown": media_type_breakdown,
+            "top_posts": scored_posts[:5],
+            "worst_posts": scored_posts[-5:] if len(scored_posts) > 5 else [],
+            "avg_caption_length": round(sum(caption_lengths) / max(len(caption_lengths), 1)),
+            "top_hashtags": all_hashtags.most_common(15),
+            "posting_frequency": posting_frequency,
             "posts_analyzed": len(posts),
         }
+
+        logger.info(
+            f"📊 Content @{username}: {len(posts)} posts | "
+            f"freq={posting_frequency:.1f}/week | "
+            f"types={dict(Counter(await self._get_media_type(p) for p in posts))}"
+        )
+        return result
+
+    # ═══════════════════════════════════════════════════════════
+    # PROFILE SUMMARY
+    # ═══════════════════════════════════════════════════════════
 
     async def profile_summary(
         self,
@@ -247,25 +362,42 @@ class AsyncAnalyticsAPI:
         Returns:
             dict: Combined engagement, timing, content, and profile data
         """
+        # Gather all analytics
         engagement = await self.engagement_rate(username, post_count)
         timing = await self.best_posting_times(username, post_count)
         content = await self.content_analysis(username, post_count)
 
-        user = await self._users.get_by_username(username)
+        # Profile info
+        user = self._users.get_by_username(username)
+        profile = {
+            "username": getattr(user, "username", username),
+            "full_name": getattr(user, "full_name", ""),
+            "followers": getattr(user, "followers", 0),
+            "following": getattr(user, "following", 0),
+            "is_verified": getattr(user, "is_verified", False),
+            "is_private": getattr(user, "is_private", False),
+            "biography": getattr(user, "biography", ""),
+        }
 
         return {
-            "username": username,
-            "profile": {
-                "followers": getattr(user, "followers", 0),
-                "following": getattr(user, "following", 0),
-                "posts_count": getattr(user, "posts_count", 0),
-                "is_verified": getattr(user, "is_verified", False),
-                "is_business": getattr(user, "is_business", False),
-            },
+            "profile": profile,
             "engagement": engagement,
-            "best_times": timing,
-            "content": content,
+            "best_times": {
+                "hours": timing.get("best_hours", [])[:3],
+                "days": timing.get("best_days", [])[:3],
+            },
+            "content": {
+                "media_types": content.get("media_type_breakdown", {}),
+                "top_posts": content.get("top_posts", [])[:3],
+                "posting_frequency": content.get("posting_frequency", 0),
+                "top_hashtags": content.get("top_hashtags", [])[:10],
+            },
+            "analyzed_at": datetime.now().isoformat(),
         }
+
+    # ═══════════════════════════════════════════════════════════
+    # COMPETITOR COMPARISON
+    # ═══════════════════════════════════════════════════════════
 
     async def compare(
         self,
@@ -286,64 +418,116 @@ class AsyncAnalyticsAPI:
                 - winner: best overall account
         """
         accounts = []
-        for u in usernames:
+
+        for username in usernames:
             try:
-                summary = await self.profile_summary(u, post_count)
-                accounts.append(summary)
+                eng = await self.engagement_rate(username, post_count)
+                content = await self.content_analysis(username, post_count)
+                user = self._users.get_by_username(username)
+
+                accounts.append({
+                    "username": username,
+                    "followers": eng.get("followers", 0),
+                    "engagement_rate": eng.get("engagement_rate", 0),
+                    "avg_likes": eng.get("avg_likes", 0),
+                    "avg_comments": eng.get("avg_comments", 0),
+                    "posting_frequency": content.get("posting_frequency", 0),
+                    "top_hashtags": content.get("top_hashtags", [])[:5],
+                    "rating": eng.get("rating", "no_data"),
+                })
             except Exception as e:
-                accounts.append({"username": u, "error": str(e)})
+                accounts.append({"username": username, "error": str(e)})
 
         valid = [a for a in accounts if "error" not in a]
+
         rankings = {}
         if valid:
-            rankings["engagement"] = max(valid, key=lambda a: a.get("engagement", {}).get("engagement_rate", 0)).get("username")
-            rankings["followers"] = max(valid, key=lambda a: a.get("profile", {}).get("followers", 0)).get("username")
+            rankings["followers"] = sorted(valid, key=lambda a: a.get("followers", 0), reverse=True)[0]["username"]
+            rankings["engagement"] = sorted(valid, key=lambda a: a.get("engagement_rate", 0), reverse=True)[0]["username"]
+            rankings["avg_likes"] = sorted(valid, key=lambda a: a.get("avg_likes", 0), reverse=True)[0]["username"]
+            rankings["posting_frequency"] = sorted(valid, key=lambda a: a.get("posting_frequency", 0), reverse=True)[0]["username"]
 
-        return {
+        # Overall winner (most #1 rankings)
+        from collections import Counter as Cnt
+        wins = Cnt(rankings.values())
+        winner = wins.most_common(1)[0][0] if wins else None
+
+        result = {
             "accounts": accounts,
             "rankings": rankings,
-            "compared": len(accounts),
+            "winner": winner,
+            "compared_at": datetime.now().isoformat(),
         }
+        logger.info(f"📊 Compare {usernames}: winner=@{winner}")
+        return result
 
-    # ─── Helpers ─────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════
+    # HELPERS
+    # ═══════════════════════════════════════════════════════════
 
     async def _fetch_posts(self, user_id, count: int = 12) -> List[Dict]:
         """Fetch user posts via feed API."""
-        try:
-            data = await self._client.get(
-                f"/feed/user/{user_id}/",
-                params={"count": str(count)},
-                rate_category="get_feed",
-            )
-            return data.get("items", []) if data else []
-        except Exception as e:
-            logger.warning(f"Fetch posts error: {e}")
+        if not user_id:
             return []
+        posts = []
+        cursor = None
+        while len(posts) < count:
+            try:
+                result = self._client.request(
+                    "GET", f"/api/v1/feed/user/{user_id}/",
+                    params={"count": str(min(count - len(posts), 33)), **({"max_id": cursor} if cursor else {})},
+                )
+            except Exception as e:
+                logger.debug(f"Fetch posts error: {e}")
+                break
+
+            if not result or not isinstance(result, dict):
+                break
+
+            items = result.get("items", [])
+            if not items:
+                break
+            posts.extend(items)
+
+            if not result.get("more_available", False):
+                break
+            cursor = result.get("next_max_id")
+            if not cursor:
+                break
+
+        return posts[:count]
 
     @staticmethod
-    def _get_likes(post: Dict) -> int:
-        return post.get("like_count", 0) or post.get("likes", {}).get("count", 0) or 0
+    async def _get_likes(post: Dict) -> int:
+        return post.get("like_count", 0) or post.get("likes", 0) or 0
 
     @staticmethod
-    def _get_comments(post: Dict) -> int:
-        return post.get("comment_count", 0) or post.get("comments", {}).get("count", 0) or 0
+    async def _get_comments(post: Dict) -> int:
+        return post.get("comment_count", 0) or post.get("comments", 0) or 0
 
     @staticmethod
-    def _get_timestamp(post: Dict) -> int:
-        return post.get("taken_at", 0) or post.get("taken_at_timestamp", 0) or 0
+    async def _get_timestamp(post: Dict) -> Optional[int]:
+        return post.get("taken_at") or post.get("taken_at_timestamp")
 
     @staticmethod
-    def _get_caption(post: Dict) -> str:
+    async def _get_caption(post: Dict) -> str:
         cap = post.get("caption")
         if isinstance(cap, dict):
             return cap.get("text", "")
         return cap or ""
 
     @staticmethod
-    def _get_media_type(post: Dict) -> str:
-        mt = post.get("media_type", 1)
-        if mt == 8 or post.get("carousel_media"):
-            return "carousel"
+    async def _get_media_type(post: Dict) -> str:
+        mt = post.get("media_type")
+        if mt == 1:
+            return "photo"
         elif mt == 2:
             return "video"
+        elif mt == 8:
+            return "carousel"
+        typename = post.get("__typename", "")
+        if "Video" in typename:
+            return "video"
+        if "Sidecar" in typename:
+            return "carousel"
         return "photo"

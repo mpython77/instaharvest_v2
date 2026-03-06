@@ -4,8 +4,10 @@ Account API
 Account management: profile editing, picture change, privacy.
 """
 
+import json
 from typing import Any, Dict, Optional
 
+import asyncio
 from ..async_client import AsyncHttpClient
 
 
@@ -18,15 +20,51 @@ class AsyncAccountAPI:
     async def get_current_user(self) -> Dict[str, Any]:
         """
         Current (logged in) account data.
+        Web-compatible: uses /users/web_profile_info/.
 
         Returns:
             Full profile data of the current user
         """
-        data = await self._client.get(
-            "/accounts/current_user/",
-            rate_category="get_profile",
-        )
-        return data.get("user", data)
+        try:
+            sess = self._client.get_session()
+            # Method 1: web_profile_info with username (most reliable)
+            if sess and sess.ds_user_id:
+                # Try fetching via web_profile_info
+                try:
+                    data = await self._client.get(
+                        "/users/web_profile_info/",
+                        params={"username": getattr(sess, '_username', '')},
+                        rate_category="get_profile",
+                    )
+                    user_data = data.get("data", {}).get("user", {})
+                    if user_data and user_data.get("username"):
+                        return user_data
+                except Exception:
+                    pass
+
+                # Method 2: REST /accounts/current_user/
+                try:
+                    data = await self._client.get(
+                        "/accounts/current_user/?edit=true",
+                        rate_category="get_profile",
+                    )
+                    return data.get("user", data)
+                except Exception:
+                    pass
+
+                # Method 3: user info by ID
+                try:
+                    data = await self._client.get(
+                        f"/users/{sess.ds_user_id}/info/",
+                        rate_category="get_profile",
+                    )
+                    return data.get("user", data)
+                except Exception:
+                    pass
+
+            return {"status": "fail", "message": "current_user requires active web session"}
+        except Exception:
+            return {"status": "fail", "message": "current_user requires active web session"}
 
     async def edit_profile(
         self,

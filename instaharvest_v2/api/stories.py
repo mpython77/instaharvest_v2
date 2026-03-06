@@ -368,29 +368,55 @@ class StoriesAPI:
 
     def mark_seen(self, items: List[Dict]) -> Dict[str, Any]:
         """
-        Mark story as seen.
+        Mark story as seen via GraphQL mutation.
+
+        Uses PolarisStoriesV3SeenMutation (doc_id=24372833149008516).
+        Instagram no longer accepts REST POST for mark_seen — only GraphQL.
 
         Args:
-            items: List of viewed story elements
-                   Each: {"media_id": "...", "taken_at": "...", "user_id": "..."}
+            items: List of viewed story elements. Each dict can have:
+                - media_id or pk: Story media PK
+                - taken_at: Unix timestamp when story was created
+                - user_id or reel_id: Story owner's user PK
+
+        Returns:
+            dict: GraphQL response with status
         """
-        import json
         import time
 
-        reels = {}
+        now_ts = int(time.time())
+        results = []
+
         for item in items:
             media_id = str(item.get("media_id", item.get("pk", "")))
-            taken_at = str(item.get("taken_at", int(time.time())))
-            user_id = str(item.get("user_id", ""))
+            taken_at = int(item.get("taken_at", now_ts))
+            user_id = str(item.get("user_id", item.get("reel_id", "")))
 
-            key = f"{media_id}_{user_id}"
-            reels[key] = [f"{taken_at}_{int(time.time())}"]
+            variables = {
+                "reelId": user_id,
+                "reelMediaId": media_id,
+                "reelMediaOwnerId": user_id,
+                "reelMediaTakenAt": taken_at,
+                "viewSeenAt": now_ts,
+            }
 
-        return self._client.post(
-            "/media/seen/",
-            data={"reels": json.dumps(reels)},
-            rate_category="post_default",
-        )
+            data = self._client.post(
+                "/graphql/query",
+                data={
+                    "fb_api_req_friendly_name": "PolarisStoriesV3SeenMutation",
+                    "variables": _json.dumps(variables),
+                    "server_timestamps": "true",
+                    "doc_id": "24372833149008516",
+                },
+                rate_category="post_default",
+                full_url="https://www.instagram.com/graphql/query",
+            )
+            results.append(data)
+
+        # Return single result for single item, list for multiple
+        if len(results) == 1:
+            return results[0]
+        return {"results": results, "status": "ok"}
 
     def get_viewers(self, story_id: int | str) -> Dict[str, Any]:
         """
@@ -732,3 +758,90 @@ class StoriesAPI:
             },
             rate_category="post_dm",
         )
+
+    # ══════════════════════════════════════════════════════════════
+    # Story Scraping Pipeline
+    # ══════════════════════════════════════════════════════════════
+
+    def scrape_user_complete(
+        self,
+        user_id: int | str,
+        include_highlights: bool = True,
+        include_highlight_items: bool = True,
+        delay: float = 1.5,
+    ) -> Dict[str, Any]:
+        """
+        Complete story scraping pipeline — stories + highlights + items.
+
+        Returns all story data for a user in one call:
+        - Active stories (parsed with stickers, mentions, etc.)
+        - Highlights list
+        - Highlight items (parsed)
+
+        Args:
+            user_id: User PK
+            include_highlights: Fetch highlights list
+            include_highlight_items: Fetch items for each highlight
+            delay: Delay between requests (seconds)
+
+        Returns:
+            dict: {
+                user_id: str,
+                stories: {
+                    count: int,
+                    items: [{pk, media_type, url, mentions, ...}]
+                },
+                highlights: {
+                    count: int,
+                    items: [{id, title, media_count, cover_url, items: [...]}]
+                },
+                status: "ok"
+            }
+        """
+        import time as _time
+
+        result = {
+            "user_id": str(user_id),
+            "stories": {"count": 0, "items": []},
+            "highlights": {"count": 0, "items": []},
+            "status": "ok",
+        }
+
+        # 1. Active stories (parsed)
+        try:
+            stories = self.get_stories_parsed(user_id)
+            if stories and "items" in stories:
+                result["stories"]["items"] = stories["items"]
+                result["stories"]["count"] = len(stories["items"])
+                if "user" in stories:
+                    result["user"] = stories["user"]
+        except Exception:
+            pass
+
+        if not include_highlights:
+            return result
+
+        _time.sleep(delay)
+
+        # 2. Highlights list
+        try:
+            highlights = self.get_highlights_parsed(user_id)
+            if highlights:
+                result["highlights"]["count"] = len(highlights)
+
+                if include_highlight_items:
+                    # 3. Fetch items for each highlight
+                    for hl in highlights:
+                        _time.sleep(delay)
+                        try:
+                            items = self.get_highlight_items_parsed(hl["id"])
+                            hl["items"] = items.get("items", []) if items else []
+                        except Exception:
+                            hl["items"] = []
+
+                result["highlights"]["items"] = highlights
+        except Exception:
+            pass
+
+        return result
+

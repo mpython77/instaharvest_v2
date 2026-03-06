@@ -46,6 +46,21 @@ from .api.async_collections import AsyncCollectionsAPI
 from .api.async_download import AsyncDownloadAPI
 from .api.async_auth import AsyncAuthAPI
 from .api.async_public import AsyncPublicAPI
+from .api.async_growth import AsyncGrowthAPI
+from .api.async_automation import AsyncAutomationAPI
+from .api.async_monitor import AsyncMonitorAPI
+from .api.async_bulk_download import AsyncBulkDownloadAPI
+from .api.async_hashtag_research import AsyncHashtagResearchAPI
+from .api.async_pipeline import AsyncPipelineAPI
+from .api.async_ai_suggest import AsyncAISuggestAPI
+from .api.async_audience import AsyncAudienceAPI
+from .api.async_comment_manager import AsyncCommentManagerAPI
+from .api.async_ab_test import AsyncABTestAPI
+from .api.async_public_data import AsyncPublicDataAPI
+from .api.async_export import AsyncExportAPI
+from .api.async_analytics import AsyncAnalyticsAPI
+from .api.async_scheduler import AsyncSchedulerAPI
+from .api.async_discover import AsyncDiscoverAPI
 from .batch import BatchAPI
 
 logger = logging.getLogger("instaharvest_v2.async")
@@ -165,6 +180,36 @@ class AsyncInstagram:
         self.collections = AsyncCollectionsAPI(self._client)
         self.download = AsyncDownloadAPI(self._client)
         self.auth = AsyncAuthAPI(self._client)
+        self.discover = AsyncDiscoverAPI(self._client)
+
+        # High-level API modules (composing low-level APIs)
+        self.export = AsyncExportAPI(
+            self._client, self.users, self.friendships, self.media, self.hashtags
+        )
+        self.analytics = AsyncAnalyticsAPI(
+            self._client, self.users, self.media, self.feed
+        )
+        self.scheduler = AsyncSchedulerAPI(self.upload, self.stories)
+        self.growth = AsyncGrowthAPI(self._client, self.users, self.friendships)
+        self.automation = AsyncAutomationAPI(
+            self._client, self.direct, self.media, self.friendships, self.stories
+        )
+        self.monitor = AsyncMonitorAPI(self._client, self.users, self.feed, self.stories)
+        self.bulk_download = AsyncBulkDownloadAPI(
+            self._client, self.download, self.users, self.stories
+        )
+        self.hashtag_research = AsyncHashtagResearchAPI(self._client, self.hashtags)
+        self.pipeline = AsyncPipelineAPI(
+            self._client, self.users, self.friendships, self.media
+        )
+        self.ai_suggest = AsyncAISuggestAPI(
+            self._client, self.users, self.hashtags, getattr(self, 'hashtag_research', None)
+        )
+        self.audience = AsyncAudienceAPI(self._client, self.users, self.friendships)
+        self.comment_manager = AsyncCommentManagerAPI(self._client, self.media)
+        self.ab_test = AsyncABTestAPI(
+            self._client, self.upload, self.media, self.analytics
+        )
 
         # Batch operations (async power)
         self.batch = BatchAPI(self)
@@ -175,6 +220,9 @@ class AsyncInstagram:
             proxy_manager=self._proxy_mgr,
         )
         self.public = AsyncPublicAPI(self._anon_client)
+        
+        # Public Data analytics (Supermetrics-style, no login needed)
+        self.public_data = AsyncPublicDataAPI(self.public)
 
     # ─── EVENT SYSTEM ────────────────────────────────────────
 

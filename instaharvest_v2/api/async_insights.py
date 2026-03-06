@@ -6,6 +6,7 @@ Account and post statistics, business info.
 
 from typing import Any, Dict
 
+import asyncio
 from ..async_client import AsyncHttpClient
 
 

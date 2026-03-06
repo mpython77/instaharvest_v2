@@ -21,6 +21,7 @@ import uuid
 import os
 from typing import Any, Dict, List, Optional
 
+import asyncio
 from ..async_client import AsyncHttpClient
 
 # Upload URL — web session only works on www.instagram.com
@@ -35,13 +36,13 @@ class AsyncUploadAPI:
 
     # ─── UTILITY ────────────────────────────────────────────
 
-    def _generate_upload_id(self) -> str:
+    async def _generate_upload_id(self) -> str:
         """Unique upload ID (millisecond timestamp)"""
         return str(int(time.time() * 1000))
 
     async def _get_session(self):
         """Get current session."""
-        return await self._client.get_session()
+        return self._client.get_session()
 
     # ─── PHOTO UPLOAD ──────────────────────────────────────
 
@@ -49,7 +50,7 @@ class AsyncUploadAPI:
         """
         Upload image to Instagram server (raw binary upload).
         """
-        upload_id = upload_id or self._generate_upload_id()
+        upload_id = upload_id or await self._generate_upload_id()
         name = f"fb_uploader_{upload_id}"
         upload_url = f"{UPLOAD_URL}/rupload_igphoto/{name}"
 
@@ -67,7 +68,7 @@ class AsyncUploadAPI:
             "offset": "0",
         }
 
-        result = await self._client.upload_raw(
+        result = self._client.upload_raw(
             url=upload_url,
             data=image_data,
             headers=headers,
@@ -98,7 +99,7 @@ class AsyncUploadAPI:
         Returns:
             dict: {upload_id, status, ...}
         """
-        upload_id = upload_id or self._generate_upload_id()
+        upload_id = upload_id or await self._generate_upload_id()
         name = f"fb_uploader_{upload_id}"
 
         upload_url = f"{UPLOAD_URL}/rupload_igvideo/{name}"
@@ -123,7 +124,7 @@ class AsyncUploadAPI:
             "offset": "0",
         }
 
-        result = await self._client.upload_raw(
+        result = self._client.upload_raw(
             url=upload_url,
             data=video_data,
             headers=headers,
@@ -164,7 +165,7 @@ class AsyncUploadAPI:
             raise ValueError("image_path or image_data must be provided!")
 
         # 1. Upload
-        upload_id = self._generate_upload_id()
+        upload_id = await self._generate_upload_id()
         upload_result = await self._upload_photo(image_data, upload_id)
 
         if upload_result.get("status") != "ok":
@@ -239,7 +240,7 @@ class AsyncUploadAPI:
             raise ValueError("video_path or video_data must be provided!")
 
         # 1. Video upload
-        upload_id = self._generate_upload_id()
+        upload_id = await self._generate_upload_id()
         upload_result = await self._upload_video(
             video_data, upload_id, duration, width, height,
         )
@@ -300,7 +301,7 @@ class AsyncUploadAPI:
         if not image_data:
             raise ValueError("image_path or image_data must be provided!")
 
-        upload_id = self._generate_upload_id()
+        upload_id = await self._generate_upload_id()
         await self._upload_photo(image_data, upload_id)
 
         time.sleep(1)
@@ -338,7 +339,7 @@ class AsyncUploadAPI:
         if not video_data:
             raise ValueError("video_path or video_data must be provided!")
 
-        upload_id = self._generate_upload_id()
+        upload_id = await self._generate_upload_id()
         await self._upload_video(video_data, upload_id, duration)
 
         time.sleep(3)
@@ -388,7 +389,7 @@ class AsyncUploadAPI:
         if not video_data:
             raise ValueError("video_path or video_data must be provided!")
 
-        upload_id = self._generate_upload_id()
+        upload_id = await self._generate_upload_id()
         await self._upload_video(
             video_data, upload_id, duration, width, height, is_clips=True,
         )
@@ -474,7 +475,7 @@ class AsyncUploadAPI:
             else:
                 image_data = img
 
-            upload_id = self._generate_upload_id()
+            upload_id = await self._generate_upload_id()
             # Unique ID per upload — 1ms apart
             time.sleep(0.01)
 
@@ -496,7 +497,7 @@ class AsyncUploadAPI:
                 "offset": "0",
             }
 
-            result = await self._client.upload_raw(
+            result = self._client.upload_raw(
                 url=upload_url,
                 data=image_data,
                 headers=headers,
@@ -520,7 +521,7 @@ class AsyncUploadAPI:
 
         configure_data = {
             "caption": caption,
-            "client_sidecar_id": self._generate_upload_id(),
+            "client_sidecar_id": await self._generate_upload_id(),
             "children_metadata": json.dumps(children_metadata),
             "disable_comments": "1" if disable_comments else "0",
         }

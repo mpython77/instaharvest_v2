@@ -32,8 +32,14 @@ from .config import (
     RETRY_STATUS_CODES,
     REQUEST_TIMEOUT,
     CONNECT_TIMEOUT,
-    SEC_CH_UA_VARIANTS,
 )
+
+# Instagram server build hash — extracted from live page.
+# Used as fallback for x-instagram-ajax header when warm-up can't parse HTML.
+# Update periodically: browser DevTools → Console →
+#   document.documentElement.innerHTML.match(/server_revision["\s:]+([\d]+)/)?.[1]
+LATEST_SERVER_REVISION = "1034642761"
+
 from .exceptions import (
     InstagramError,
     LoginRequired,
@@ -84,15 +90,125 @@ class HttpClient:
         # Smart rotation coordinator
         self._rotation = SmartRotationCoordinator(anti_detect, proxy_manager)
 
+        # Warm-up tracking: set of ds_user_id that have been warmed up
+        self._warmed_sessions: set = set()
+
     def _get_curl_session(self) -> curl_requests.Session:
         """Get or create curl_cffi session with Chrome 142 TLS."""
         if self._curl_session is None:
-            # chrome142 — Chrome 145 ga eng yaqin TLS fingerprint
+            # chrome142 — closest TLS fingerprint to Chrome 145
             self._curl_session = curl_requests.Session(
                 impersonate="chrome142"
             )
             self._curl_session.max_redirects = 5
         return self._curl_session
+
+    def _warm_up_session(self, sess) -> bool:
+        """
+        Minimal session warm-up — ONLY 1 API request.
+
+        GET /api/v1/web/fxcal/ig_sso_users/ → x-ig-set-www-claim header.
+        x-instagram-ajax → LATEST_SERVER_REVISION (hardcoded fallback).
+
+        Chrome browser does exactly this — on first page load
+        it retrieves x-ig-www-claim. All subsequent API requests use this claim.
+
+        Returns True if claim was captured.
+        """
+        try:
+            fp = sess.fingerprint
+            if not fp:
+                self._warmed_sessions.add(sess.ds_user_id)
+                return False
+
+            # ── Single lightweight API call ──────────────────────
+            warm_sess = curl_requests.Session(impersonate=fp.impersonate)
+
+            proxy_dict = self._proxy_mgr.get_curl_proxy()
+            kwargs = {
+                "timeout": (CONNECT_TIMEOUT, REQUEST_TIMEOUT),
+                "allow_redirects": False,
+                "verify": not bool(proxy_dict),
+            }
+            if proxy_dict:
+                kwargs["proxies"] = proxy_dict
+
+            headers = {
+                "accept": "*/*",
+                "accept-encoding": "gzip, deflate, br, zstd",
+                "accept-language": "en-US,en;q=0.9",
+                "cookie": sess.cookie_string,
+                "referer": "https://www.instagram.com/",
+                "sec-ch-ua": fp.sec_ch_ua,
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": fp.sec_ch_ua_platform,
+                "sec-fetch-dest": "empty",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-site": "same-origin",
+                "user-agent": fp.user_agent,
+                "x-csrftoken": sess.csrf_token,
+                "x-ig-app-id": IG_APP_ID,
+                "x-ig-www-claim": "0",
+                "x-instagram-ajax": LATEST_SERVER_REVISION,
+                "x-requested-with": "XMLHttpRequest",
+            }
+
+            logger.info(f"🔥 [Warm-up] Single API call for {sess.ds_user_id}...")
+
+            resp = warm_sess.get(
+                url="https://www.instagram.com/api/v1/web/fxcal/ig_sso_users/",
+                headers=headers,
+                **kwargs,
+            )
+
+            # Capture claim
+            claim_found = False
+            claim = resp.headers.get("x-ig-set-www-claim", "")
+            if claim and claim != "0":
+                sess.ig_www_claim = claim
+                claim_found = True
+                logger.info(f"✅ [Warm-up] claim: {claim[:35]}...")
+
+            # Try to auto-detect server revision from response
+            ajax_found = False
+            try:
+                if resp.status_code == 200 and resp.text:
+                    import re as _re
+                    # Check response body for server_revision
+                    m = _re.search(r'"server_revision":(\d+)', resp.text)
+                    if m:
+                        sess.x_instagram_ajax = m.group(1)
+                        ajax_found = True
+                        logger.info(f"✅ [Warm-up] ajax (auto): {m.group(1)}")
+            except Exception:
+                pass
+
+            # Fallback to hardcoded value
+            if not ajax_found and not sess.x_instagram_ajax:
+                sess.x_instagram_ajax = LATEST_SERVER_REVISION
+
+            # Update cookies from response
+            self._update_session_cookies(resp, sess)
+
+            # Clean up
+            try:
+                warm_sess.close()
+            except Exception:
+                pass
+
+            self._warmed_sessions.add(sess.ds_user_id)
+
+            logger.info(
+                f"{'✅' if claim_found else '⚠️'} [Warm-up] Done! "
+                f"claim={'✅' if claim_found else '❌'} "
+                f"ajax={sess.x_instagram_ajax}"
+            )
+            return claim_found
+
+        except Exception as e:
+            logger.warning(f"⚠️ [Warm-up] Error: {e}")
+            self._warmed_sessions.add(sess.ds_user_id)
+            return False
 
     def _rotate_curl_session(self) -> curl_requests.Session:
         """Create a new session with Chrome 142 TLS impersonation."""
@@ -226,6 +342,12 @@ class HttpClient:
         last_exception = None
         _login_redirect_count = 0  # Per-request counter to prevent infinite 302 loops
 
+        # ── AUTO WARM-UP ─────────────────────────────────────
+        # First request for this session? Load instagram.com first.
+        # This captures x-ig-www-claim (required for POST requests).
+        if sess.ds_user_id not in self._warmed_sessions:
+            self._warm_up_session(sess)
+
         for attempt in range(self._retry.max_retries + 1):
             proxy_url = None
             start_time = time.time()
@@ -260,9 +382,10 @@ class HttpClient:
 
                 # Headers
                 if raw_data and raw_headers:
-                    # Raw upload — minimal headers
+                    # Raw upload — minimal headers + fingerprint
+                    fp = sess.fingerprint
                     headers = {
-                        "user-agent": sess.user_agent or self._anti_detect.get_identity().user_agent,
+                        "user-agent": fp.user_agent if fp else sess.user_agent,
                         "cookie": sess.cookie_string,
                         "x-csrftoken": sess.csrf_token,
                         "x-ig-app-id": IG_APP_ID,
@@ -270,14 +393,11 @@ class HttpClient:
                         "origin": "https://www.instagram.com",
                     }
                     headers.update(raw_headers)
-                elif sess.user_agent:
-                    # Dynamic Chrome headers from config (auto-rotates)
-                    import random as _rnd
-                    _sec_ch_ua = _rnd.choice(SEC_CH_UA_VARIANTS)
-                    # Extract version for full-version-list
-                    import re as _re
-                    _ver_match = _re.search(r'Chrome";v="(\d+)', _sec_ch_ua)
-                    _chrome_ver = _ver_match.group(1) if _ver_match else "142"
+                elif sess.fingerprint:
+                    # ── SESSION-LOCKED HEADERS ──────────────────────────
+                    # All header values come from the immutable fingerprint.
+                    # No random rotation — Instagram sees a stable browser.
+                    fp = sess.fingerprint
                     headers = {
                         ":authority": "www.instagram.com",
                         ":method": method,
@@ -294,25 +414,25 @@ class HttpClient:
                         "priority": "u=1, i",
                         "referer": "https://www.instagram.com/",
                         "sec-ch-prefers-color-scheme": "dark",
-                        "sec-ch-ua": _sec_ch_ua,
-                        "sec-ch-ua-full-version-list": f'"Not A(Brand";v="99.0.0.0", "Google Chrome";v="{_chrome_ver}.0.7632.110", "Chromium";v="{_chrome_ver}.0.7632.110"',
+                        "sec-ch-ua": fp.sec_ch_ua,
+                        "sec-ch-ua-full-version-list": fp.sec_ch_ua_full_version_list,
                         "sec-ch-ua-mobile": "?0",
                         "sec-ch-ua-model": '""',
-                        "sec-ch-ua-platform": '"Windows"',
-                        "sec-ch-ua-platform-version": '"19.0.0"',
+                        "sec-ch-ua-platform": fp.sec_ch_ua_platform,
+                        "sec-ch-ua-platform-version": fp.sec_ch_ua_platform_version,
                         "sec-fetch-dest": "empty",
                         "sec-fetch-mode": "cors",
                         "sec-fetch-site": "same-origin",
-                        "user-agent": sess.user_agent,
+                        "user-agent": fp.user_agent,
                         "x-asbd-id": "359341",
                         "x-csrftoken": sess.csrf_token,
                         "x-ig-app-id": IG_APP_ID,
                         "x-ig-www-claim": sess.ig_www_claim or "0",
-                        "x-instagram-ajax": sess.x_instagram_ajax or "",
+                        "x-instagram-ajax": sess.x_instagram_ajax or LATEST_SERVER_REVISION,
                         "x-requested-with": "XMLHttpRequest",
                     }
                 else:
-                    # Anonymous or no user_agent — use anti_detect
+                    # Fallback — no fingerprint (should not happen for auth'd sessions)
                     if method == "POST":
                         headers = self._anti_detect.get_post_headers(sess.csrf_token)
                     else:

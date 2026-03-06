@@ -11,6 +11,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
+import asyncio
 from ..async_client import AsyncHttpClient
 
 logger = logging.getLogger("instaharvest_v2")
@@ -22,7 +23,7 @@ class AsyncDownloadAPI:
     def __init__(self, client: AsyncHttpClient):
         self._client = client
 
-    def _ensure_dir(self, path: str) -> str:
+    async def _ensure_dir(self, path: str) -> str:
         """Ensure directory exists, create if not."""
         dir_path = os.path.dirname(path)
         if dir_path:
@@ -40,9 +41,9 @@ class AsyncDownloadAPI:
         Returns:
             str: Saved file path
         """
-        self._ensure_dir(save_path)
-        session = await self._client._get_curl_session()
-        sess_info = await self._client._session_mgr.get_session()
+        await self._ensure_dir(save_path)
+        session = self._client._get_curl_session()
+        sess_info = self._client._session_mgr.get_session()
 
         headers = {
             "user-agent": sess_info.user_agent if sess_info else "Mozilla/5.0",
@@ -57,7 +58,7 @@ class AsyncDownloadAPI:
         else:
             raise Exception(f"Download failed: HTTP {response.status_code}")
 
-    def _get_extension(self, url: str, default: str = ".jpg") -> str:
+    async def _get_extension(self, url: str, default: str = ".jpg") -> str:
         """Determine file extension from URL."""
         path = url.split("?")[0]
         if path.endswith(".mp4"):
@@ -72,7 +73,7 @@ class AsyncDownloadAPI:
 
     # ─── PHOTO / VIDEO DOWNLOAD ─────────────────────────────
 
-    def download_media(
+    async def download_media(
         self,
         media_pk: int | str,
         folder: str = "downloads",
@@ -107,26 +108,26 @@ class AsyncDownloadAPI:
         carousel = media.get("carousel_media", [])
         if carousel:
             for i, item in enumerate(carousel):
-                url = self._get_best_url(item)
+                url = await self._get_best_url(item)
                 if url:
-                    ext = self._get_extension(url)
+                    ext = await self._get_extension(url)
                     fname = filename or shortcode
                     path = os.path.join(folder, f"{fname}_{i+1}{ext}")
-                    self._download_url(url, path)
+                    await self._download_url(url, path)
                     saved_files.append(path)
         else:
             # Single post (one photo/video)
-            url = self._get_best_url(media)
+            url = await self._get_best_url(media)
             if url:
-                ext = self._get_extension(url)
+                ext = await self._get_extension(url)
                 fname = filename or shortcode
                 path = os.path.join(folder, f"{fname}{ext}")
-                self._download_url(url, path)
+                await self._download_url(url, path)
                 saved_files.append(path)
 
         return saved_files
 
-    def _get_best_url(self, media: dict) -> Optional[str]:
+    async def _get_best_url(self, media: dict) -> Optional[str]:
         """Get the highest quality URL from media item."""
         # Video
         video_versions = media.get("video_versions", [])
@@ -142,7 +143,7 @@ class AsyncDownloadAPI:
 
         return None
 
-    def download_photo(
+    async def download_photo(
         self,
         media_pk: int | str,
         folder: str = "downloads",
@@ -159,10 +160,10 @@ class AsyncDownloadAPI:
         Returns:
             str: Saved file path
         """
-        files = self.download_media(media_pk, folder, filename)
+        files = await self.download_media(media_pk, folder, filename)
         return files[0] if files else ""
 
-    def download_video(
+    async def download_video(
         self,
         media_pk: int | str,
         folder: str = "downloads",
@@ -179,12 +180,12 @@ class AsyncDownloadAPI:
         Returns:
             str: Saved file path
         """
-        files = self.download_media(media_pk, folder, filename)
+        files = await self.download_media(media_pk, folder, filename)
         return files[0] if files else ""
 
     # ─── STORY / HIGHLIGHT DOWNLOAD ──────────────────────────
 
-    def download_stories(
+    async def download_stories(
         self,
         user_pk: int | str,
         folder: str = "downloads/stories",
@@ -210,17 +211,17 @@ class AsyncDownloadAPI:
 
         saved = []
         for item in items:
-            url = self._get_best_url(item)
+            url = await self._get_best_url(item)
             if url:
                 ts = item.get("taken_at", int(time.time()))
-                ext = self._get_extension(url, ".mp4" if item.get("video_versions") else ".jpg")
+                ext = await self._get_extension(url, ".mp4" if item.get("video_versions") else ".jpg")
                 path = os.path.join(folder, username, f"story_{ts}{ext}")
-                self._download_url(url, path)
+                await self._download_url(url, path)
                 saved.append(path)
 
         return saved
 
-    def download_highlights(
+    async def download_highlights(
         self,
         user_pk: int | str,
         folder: str = "downloads/highlights",
@@ -253,11 +254,11 @@ class AsyncDownloadAPI:
 
             saved = []
             for i, item in enumerate(items):
-                url = self._get_best_url(item)
+                url = await self._get_best_url(item)
                 if url:
-                    ext = self._get_extension(url, ".mp4" if item.get("video_versions") else ".jpg")
+                    ext = await self._get_extension(url, ".mp4" if item.get("video_versions") else ".jpg")
                     path = os.path.join(folder, safe_title, f"{i+1:03d}{ext}")
-                    self._download_url(url, path)
+                    await self._download_url(url, path)
                     saved.append(path)
 
             result[title] = saved
@@ -311,13 +312,13 @@ class AsyncDownloadAPI:
         if not pic_url:
             raise Exception(f"Profile picture not found: {uname}")
 
-        ext = self._get_extension(pic_url)
+        ext = await self._get_extension(pic_url)
         path = os.path.join(folder, f"{uname}_profile{ext}")
         return await self._download_url(pic_url, path)
 
     # ─── BATCH DOWNLOAD ──────────────────────────────────────
 
-    def download_user_posts(
+    async def download_user_posts(
         self,
         user_pk: int | str,
         folder: str = "downloads/posts",
@@ -357,22 +358,22 @@ class AsyncDownloadAPI:
             carousel = post.get("carousel_media", [])
             if carousel:
                 for i, item in enumerate(carousel):
-                    url = self._get_best_url(item)
+                    url = await self._get_best_url(item)
                     if url:
-                        ext = self._get_extension(url)
+                        ext = await self._get_extension(url)
                         path = os.path.join(folder, f"{code}_{i+1}{ext}")
                         try:
-                            self._download_url(url, path)
+                            await self._download_url(url, path)
                             saved.append(path)
                         except Exception as e:
                             logger.warning(f"Download error {code}_{i+1}: {e}")
             else:
-                url = self._get_best_url(post)
+                url = await self._get_best_url(post)
                 if url:
-                    ext = self._get_extension(url)
+                    ext = await self._get_extension(url)
                     path = os.path.join(folder, f"{code}{ext}")
                     try:
-                        self._download_url(url, path)
+                        await self._download_url(url, path)
                         saved.append(path)
                     except Exception as e:
                         logger.warning(f"Download error {code}: {e}")
@@ -381,7 +382,7 @@ class AsyncDownloadAPI:
 
         return saved
 
-    def download_by_url(
+    async def download_by_url(
         self,
         url: str,
         folder: str = "downloads",
@@ -397,17 +398,17 @@ class AsyncDownloadAPI:
         Returns:
             list: Saved file paths
         """
-        shortcode = self._extract_shortcode(url)
+        shortcode = await self._extract_shortcode(url)
         if not shortcode:
             raise ValueError(f"Could not extract shortcode from URL: {url}")
 
-        pk = self._shortcode_to_pk(shortcode)
-        return self.download_media(pk, folder, shortcode)
+        pk = await self._shortcode_to_pk(shortcode)
+        return await self.download_media(pk, folder, shortcode)
 
     # ─── URL/SHORTCODE UTILITIES ─────────────────────────────
 
     @staticmethod
-    def _shortcode_to_pk(shortcode: str) -> int:
+    async def _shortcode_to_pk(shortcode: str) -> int:
         """Convert shortcode to media PK."""
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         pk = 0
@@ -416,7 +417,7 @@ class AsyncDownloadAPI:
         return pk
 
     @staticmethod
-    def _pk_to_shortcode(pk: int) -> str:
+    async def _pk_to_shortcode(pk: int) -> str:
         """Convert media PK to shortcode."""
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         shortcode = ""
@@ -426,7 +427,7 @@ class AsyncDownloadAPI:
         return shortcode
 
     @staticmethod
-    def _extract_shortcode(url: str) -> Optional[str]:
+    async def _extract_shortcode(url: str) -> Optional[str]:
         """
         Extract shortcode from Instagram URL.
         Supports:

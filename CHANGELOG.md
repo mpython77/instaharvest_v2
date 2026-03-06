@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.23] — 2026-03-06
+
+### Removed
+
+- **browser_engine.py** — Completely removed Playwright-based BrowserEngine from the library
+- **async_client.py** — Removed BrowserEngine import, lazy initialization, POST routing, and close() cleanup
+- POST requests now go directly through `curl_cffi` (as originally designed)
+
+### Changed
+
+- **async_direct.py** — `create_thread()` now generates proper Web API payload with `client_context`, `mutation_token`, `offline_threading_id`, `_uuid` (UUID v4), and `action: send_item`
+- **async_direct.py** — `recipient_users` format fixed to nested array `[["user_id"]]` matching Instagram Web API spec
+
+### Notes
+
+- Playwright integration was attempted to bypass Instagram's WAF on POST requests (302 redirect filter), but Instagram's Datadome anti-bot system detects and blocks even real Chromium instances when cookies are injected programmatically
+- The library's core strength remains in GET-based scraping via `curl_cffi` with TLS impersonation
+
+---
+
 ## [1.0.22] — 2026-03-06
 
 ### Fixed

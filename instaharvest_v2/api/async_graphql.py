@@ -1,25 +1,125 @@
 """
-GraphQL API (Async)
-===================
-Fetch data via Instagram GraphQL API — async version.
+GraphQL API
+===========
+Fetch data via Instagram GraphQL API.
 Supports both legacy query_hash (GET) and modern doc_id (POST).
+
+Two transport modes:
+    - query_hash GET  → old style, still works for some queries
+    - doc_id POST     → new style (2024+), required for newer endpoints
+
+Full information can be retrieved with pagination via GraphQL.
 """
 
-import asyncio
 import json
 import logging
 import re
+import time
 from typing import Any, Dict, List, Optional, Union
 
+import asyncio
 from ..async_client import AsyncHttpClient
-from .graphql import DOC_IDS, QUERY_HASHES, GraphQLAPI
 
 logger = logging.getLogger("instaharvest_v2")
 
 
+# ═══════════════════════════════════════════════════════════
+# QUERY REGISTRIES
+# ═══════════════════════════════════════════════════════════
+
+# Legacy query_hashes (GET /graphql/query/?query_hash=...)
+QUERY_HASHES = {
+    "followers": "c76146de99bb02f6415203be841dd25a",
+    "following": "d04b0a864b4b54837c0d870b0e77e076",
+    "user_posts": "69cba40317214236af40e7efa697781d",
+    "tagged_posts": "ff260833edf142571571f991cb0fcd26",
+    "liked_posts": "d5d763b1e2acf209d62d22d184488e57",
+    "user_reels": "303a4ac7f6bb47272571a1a111c50829",
+    "saved_posts": "2ce1d673055b99c84dc0d5b62e3f30d2",
+    "comments": "bc3296d1ce80a24b1b6e40b1e72903f5",
+    "likers": "d5d763b1e2acf209d62d22d184488e57",
+}
+
+# Modern doc_ids (POST /graphql/query with doc_id=...)
+DOC_IDS = {
+    # User profile info
+    "profile_info": "9496468463735694",
+    # User profile posts (pagination)
+    "profile_posts": "26442143102071041",
+    # User reels tab
+    "profile_reels": "25475393498805108",
+    # User tagged posts
+    "profile_tagged": "26832701866332833",
+    # User hover card (mini profile popup)
+    "profile_hover_card": "26120562547638331",
+    # Story highlights tray
+    "profile_highlights": "9814547265267853",
+    # Suggested users on profile
+    "profile_suggested": "25814188068245954",
+    # Profile page content (full) — updated 2026-03
+    "profile_page_content": "34272012165747896",
+    # Mark story as seen (mutation)
+    "stories_seen": "24372833149008516",
+    # Like a post (mutation)
+    "like_media": "23951234354462179",
+    # Search initial state (trending)
+    "search_null_state": "31090951390548929",
+    # User feed timeline (initial load)
+    "feed_timeline": "26307883352181852",
+    # User feed timeline (pagination / subsequent pages)
+    "feed_timeline_pagination": "26038778959150000",
+    # Liked posts feed (UNVERIFIED — REST fallback available)
+    "feed_liked": "9863315953735856",
+    # Saved/bookmarked posts feed
+    "feed_saved": "26523442937261068",
+    # Hashtag feed (UNVERIFIED — REST fallback available)
+    "feed_tag": "9506655819362310",
+    # Reels trending feed
+    "feed_reels_trending": "26136666099278270",
+    # Post comments
+    "media_comments": "26653752520898584",
+    # Comment thread / replies (UNVERIFIED)
+    "comment_thread": "37264637455117356",
+    # Post likers (UNVERIFIED — REST /api/v1/media/{id}/likers/ available)
+    "media_likers": "9321654614509578",
+    # Followers list (UNVERIFIED — REST /api/v1/friendships/{id}/followers/ available)
+    "followers": "37479062552899498",
+    # Following list (UNVERIFIED — REST /api/v1/friendships/{id}/following/ available)
+    "following": "37266564218498392",
+    # Story reels tray
+    "story_tray": "26695923807960093",
+    # Post detail
+    "media_detail": "8845758582119845",
+    # Search suggestions
+    "search_top": "36645594540471822",
+    # Explore page
+    "explore_grid": "32040227643110105",
+    # Check if new feed posts exist
+    "check_new_feed_posts": "34054231004223565",
+    # DM inbox badge/threads (Iris subscription)
+    "dm_inbox": "33328371206806736",
+    # DM sync (Lightspeed protocol — full thread/message sync)
+    "dm_sync_lightspeed": "9859601450795492",
+    # Stories tray v3 (UNVERIFIED — suggestedUsers module error; use story_tray instead)
+    "story_tray_v3": "25945596851746603",
+    # Encrypted credentials / fr cookie
+    "get_fr_cookie": "27116338451299930",
+    # Highlights page items (batch fetch with pagination)
+    "highlights_items": "25607114268966978",
+    # Profile tagged tab v2 (PolarisProfileTaggedTabContentQuery)
+    "profile_tagged_v2": "34661906216741021",
+    # Location page posts (ranked/recent by location_id)
+    "location_posts": "25930113323318595",
+    # Profile reels tab v2 (PolarisProfileReelsTabContentQuery — play_count, like_count)
+    "profile_reels_v2": "34185899317723021",
+    # COPPA enforcement check (viewer age restriction status)
+    "coppa_check": "24797863709808827",
+}
+
+
 class AsyncGraphQLAPI:
     """
-    Instagram GraphQL query API (async).
+    Instagram GraphQL query API.
 
     Supports both legacy query_hash (GET) and modern doc_id (POST).
     """
@@ -38,6 +138,14 @@ class AsyncGraphQLAPI:
     ) -> Dict[str, Any]:
         """
         Send GraphQL query (GET /graphql/query/).
+        Legacy transport — still works for some endpoints.
+
+        Args:
+            query_hash: GraphQL query hash
+            variables: Query parameters
+
+        Returns:
+            GraphQL response (inside data key)
         """
         data = await self._client.get(
             "/graphql/query/",
@@ -62,6 +170,15 @@ class AsyncGraphQLAPI:
     ) -> Dict[str, Any]:
         """
         Send GraphQL query via doc_id (POST /graphql/query).
+        Modern transport — required for newer endpoints.
+
+        Args:
+            doc_id: Document ID (from DOC_IDS registry or custom)
+            variables: Query variables
+            friendly_name: API request name (for logging)
+
+        Returns:
+            GraphQL response
         """
         payload = {
             "variables": json.dumps(variables),
@@ -90,7 +207,21 @@ class AsyncGraphQLAPI:
         count: int = 50,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Get followers via GraphQL (with pagination)."""
+        """
+        Get followers via GraphQL (with pagination).
+
+        Args:
+            user_id: User ID
+            count: How many to get (max ~50)
+            after: Pagination cursor (end_cursor)
+
+        Returns:
+            dict:
+                - count: Total followers count
+                - users: Followers list [{username, id, is_verified, ...}]
+                - has_next: Whether next page exists
+                - end_cursor: Cursor for next page
+        """
         variables = {
             "id": str(user_id),
             "include_reel": True,
@@ -132,7 +263,16 @@ class AsyncGraphQLAPI:
         user_id: str | int,
         max_count: int = 5000,
     ) -> List[Dict]:
-        """Get ALL followers (auto-pagination)."""
+        """
+        Get ALL followers (auto-pagination).
+
+        Args:
+            user_id: User ID
+            max_count: Maximum count to get
+
+        Returns:
+            list: All followers [{username, pk, is_verified, ...}]
+        """
         all_users = []
         cursor = None
         while len(all_users) < max_count:
@@ -149,7 +289,17 @@ class AsyncGraphQLAPI:
         count: int = 50,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Get following via GraphQL (with pagination)."""
+        """
+        Get following via GraphQL (with pagination).
+
+        Args:
+            user_id: User ID
+            count: How many to get
+            after: Pagination cursor
+
+        Returns:
+            dict: {count, users, has_next, end_cursor}
+        """
         variables = {
             "id": str(user_id),
             "include_reel": True,
@@ -190,7 +340,16 @@ class AsyncGraphQLAPI:
         user_id: str | int,
         max_count: int = 5000,
     ) -> List[Dict]:
-        """Get ALL followings (auto-pagination)."""
+        """
+        Get ALL followings (auto-pagination).
+
+        Args:
+            user_id: User ID
+            max_count: Maximum count to get
+
+        Returns:
+            list: All followings
+        """
         all_users = []
         cursor = None
         while len(all_users) < max_count:
@@ -202,7 +361,7 @@ class AsyncGraphQLAPI:
         return all_users[:max_count]
 
     # ═══════════════════════════════════════════════════════════
-    # POSTS (legacy)
+    # POSTS (legacy query_hash)
     # ═══════════════════════════════════════════════════════════
 
     async def get_user_posts(
@@ -211,7 +370,21 @@ class AsyncGraphQLAPI:
         count: int = 12,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Get posts via GraphQL (legacy query_hash)."""
+        """
+        Get posts via GraphQL (legacy query_hash).
+
+        Args:
+            user_id: User ID
+            count: How many to get (max ~50)
+            after: Pagination cursor
+
+        Returns:
+            dict:
+                - count: Total posts count
+                - posts: [{shortcode, media_type, likes, comments, caption, ...}]
+                - has_next: Whether next page exists
+                - end_cursor: Cursor
+        """
         variables = {
             "id": str(user_id),
             "first": min(count, 50),
@@ -236,7 +409,7 @@ class AsyncGraphQLAPI:
             posts.append({
                 "pk": node.get("id"),
                 "shortcode": node.get("shortcode"),
-                "media_type": node.get("__typename"),
+                "media_type": node.get("__typename"),  # GraphImage, GraphVideo, GraphSidecar
                 "display_url": node.get("display_url"),
                 "thumbnail_url": node.get("thumbnail_src"),
                 "is_video": node.get("is_video", False),
@@ -267,7 +440,24 @@ class AsyncGraphQLAPI:
         count: int = 12,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """User posts via modern doc_id POST."""
+        """
+        User posts via modern doc_id (POST /graphql/query).
+        Returns richer data than legacy query_hash.
+
+        Args:
+            username: Instagram username (not user_id!)
+            count: How many posts to get (max 50)
+            after: Pagination cursor
+
+        Returns:
+            dict:
+                - posts: [{pk, code, media_type, like_count, comment_count,
+                           caption, taken_at, user, image_versions, video_versions,
+                           carousel_media, location, tagged_users, ...}]
+                - has_next: Whether next page exists
+                - end_cursor: Cursor
+                - count: Number of posts on this page
+        """
         variables = {
             "data": {
                 "count": min(count, 50),
@@ -288,6 +478,7 @@ class AsyncGraphQLAPI:
             friendly_name="PolarisProfilePostsTabContentQuery_connection",
         )
 
+        # Parse the v2 response
         connection = (
             data.get("data", {})
             .get("xdt_api__v1__feed__user_timeline_graphql_connection", {})
@@ -299,7 +490,7 @@ class AsyncGraphQLAPI:
         posts = []
         for edge in edges:
             node = edge.get("node", {})
-            posts.append(GraphQLAPI._parse_v2_media(node))
+            posts.append(await self._parse_v2_media(node))
 
         return {
             "posts": posts,
@@ -313,7 +504,16 @@ class AsyncGraphQLAPI:
         username: str,
         max_count: int = 100,
     ) -> List[Dict]:
-        """Get ALL posts via doc_id (auto-pagination)."""
+        """
+        Get ALL posts via doc_id (auto-pagination).
+
+        Args:
+            username: Instagram username
+            max_count: Maximum number of posts to get
+
+        Returns:
+            list: All posts with full metadata
+        """
         all_posts = []
         cursor = None
         page = 0
@@ -333,16 +533,27 @@ class AsyncGraphQLAPI:
                 break
 
             cursor = result["end_cursor"]
-            await asyncio.sleep(0.5)
+            time.sleep(0.5)  # Anti-rate-limit delay
 
         return all_posts[:max_count]
 
     # ═══════════════════════════════════════════════════════════
-    # MEDIA DETAIL / COMMENTS / LIKERS (via doc_id)
+    # MEDIA DETAIL (via doc_id)
     # ═══════════════════════════════════════════════════════════
 
-    async def get_media_detail(self, shortcode: str) -> Dict[str, Any]:
-        """Full media detail via doc_id POST."""
+    async def get_media_detail(
+        self,
+        shortcode: str,
+    ) -> Dict[str, Any]:
+        """
+        Full media detail via doc_id POST.
+
+        Args:
+            shortcode: Post shortcode (from URL)
+
+        Returns:
+            dict: Full media info with all available fields
+        """
         variables = {
             "shortcode": shortcode,
             "fetch_tagged_user_count": None,
@@ -356,10 +567,19 @@ class AsyncGraphQLAPI:
             friendly_name="PolarisPostActionLoadPostQueryQuery",
         )
 
-        item = data.get("data", {}).get("xdt_shortcode_media", {})
+        item = (
+            data.get("data", {})
+            .get("xdt_shortcode_media", {})
+        )
+
         if item:
-            return GraphQLAPI._parse_v2_media(item)
+            return await self._parse_v2_media(item)
+
         return data
+
+    # ═══════════════════════════════════════════════════════════
+    # COMMENTS (via doc_id)
+    # ═══════════════════════════════════════════════════════════
 
     async def get_comments_v2(
         self,
@@ -367,7 +587,22 @@ class AsyncGraphQLAPI:
         count: int = 20,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Post comments via doc_id POST."""
+        """
+        Post comments via doc_id POST.
+        Returns threaded comments with replies.
+
+        Args:
+            media_id: Media PK
+            count: Comments per page
+            after: Pagination cursor
+
+        Returns:
+            dict:
+                - comments: [{text, user, created_at, like_count, replies, ...}]
+                - has_next: bool
+                - end_cursor: str
+                - count: int
+        """
         variables = {
             "media_id": str(media_id),
             "first": min(count, 50),
@@ -429,13 +664,27 @@ class AsyncGraphQLAPI:
             "end_cursor": page_info.get("end_cursor"),
         }
 
+    # ═══════════════════════════════════════════════════════════
+    # LIKERS (via doc_id)
+    # ═══════════════════════════════════════════════════════════
+
     async def get_likers_v2(
         self,
         shortcode: str,
         count: int = 50,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Post likers via doc_id POST."""
+        """
+        Post likers via doc_id POST.
+
+        Args:
+            shortcode: Post shortcode
+            count: Likers per page
+            after: Pagination cursor
+
+        Returns:
+            dict: {users, count, has_next, end_cursor}
+        """
         variables = {
             "shortcode": shortcode,
             "first": min(count, 50),
@@ -477,7 +726,7 @@ class AsyncGraphQLAPI:
         }
 
     # ═══════════════════════════════════════════════════════════
-    # TAGGED POSTS (legacy)
+    # TAGGED POSTS (legacy query_hash)
     # ═══════════════════════════════════════════════════════════
 
     async def get_tagged_posts(
@@ -486,7 +735,17 @@ class AsyncGraphQLAPI:
         count: int = 12,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """User tagged posts (tagged/photos of you)."""
+        """
+        User tagged posts (tagged/photos of you).
+
+        Args:
+            user_id: User ID
+            count: How many to get
+            after: Pagination cursor
+
+        Returns:
+            dict: {count, posts, has_next, end_cursor}
+        """
         variables = {
             "id": str(user_id),
             "first": min(count, 50),
@@ -531,140 +790,99 @@ class AsyncGraphQLAPI:
         }
 
     # ═══════════════════════════════════════════════════════════
-    # HOVER CARD / SUGGESTED / LIKE / TIMELINE / REELS / SAVED
+    # RAW QUERIES (any doc_id or query_hash)
     # ═══════════════════════════════════════════════════════════
 
-    async def get_hover_card(
+    async def raw_query(
         self,
-        user_id: str,
-        username: str,
+        query_hash: str,
+        variables: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Mini profile popup — fast user info."""
-        variables = {"userID": str(user_id), "username": username}
+        """
+        Send arbitrary GraphQL query (legacy query_hash).
 
-        data = await self._graphql_doc_query(
-            doc_id=DOC_IDS["profile_hover_card"],
-            variables=variables,
-            friendly_name="PolarisUserHoverCardContentV2Query",
-        )
+        Args:
+            query_hash: GraphQL query hash string
+            variables: Query variables dict
 
-        info = data.get("data", {}).get("xdt_api__v1__users__info", {})
-        friendship = info.get("friendship_status", {}) or {}
-        mutual = info.get("mutual_followers", {}) or {}
+        Returns:
+            Raw GraphQL response
+        """
+        return await self._graphql_query(query_hash, variables)
 
-        return {
-            "pk": info.get("pk"),
-            "username": info.get("username", username),
-            "full_name": info.get("full_name", ""),
-            "biography": info.get("biography", ""),
-            "follower_count": info.get("follower_count", 0),
-            "following_count": info.get("following_count", 0),
-            "media_count": info.get("media_count", 0),
-            "is_verified": info.get("is_verified", False),
-            "is_private": info.get("is_private", False),
-            "profile_pic_url": info.get("profile_pic_url", ""),
-            "is_following": friendship.get("following", False),
-            "is_followed_by": friendship.get("followed_by", False),
-            "mutual_count": mutual.get("count", 0),
-            "mutual_followers": mutual.get("users", []),
-        }
-
-    async def get_suggested_users(
+    async def raw_doc_query(
         self,
-        user_id: str,
+        doc_id: str,
+        variables: Dict[str, Any],
+        friendly_name: str = "",
     ) -> Dict[str, Any]:
-        """Similar accounts for a user (Suggested for you)."""
-        variables = {"module": "profile", "target_id": str(user_id)}
+        """
+        Send arbitrary GraphQL doc_id query (modern POST).
 
-        data = await self._graphql_doc_query(
-            doc_id=DOC_IDS["profile_suggested"],
-            variables=variables,
-            friendly_name="PolarisProfileSuggestedUsersWithPreloadableQuery",
-        )
+        Args:
+            doc_id: Document ID
+            variables: Query variables
+            friendly_name: API friendly name
 
-        users_data = (
-            data.get("data", {})
-            .get("xdt_api__v1__discover__chaining", {})
-            .get("users", [])
-        )
+        Returns:
+            Raw GraphQL response
+        """
+        return await self._graphql_doc_query(doc_id, variables, friendly_name)
 
-        users = []
-        for u in users_data:
-            if isinstance(u, dict):
-                users.append({
-                    "pk": u.get("pk"),
-                    "username": u.get("username", ""),
-                    "full_name": u.get("full_name", ""),
-                    "is_verified": u.get("is_verified", False),
-                    "is_private": u.get("is_private", False),
-                    "follower_count": u.get("follower_count", 0),
-                    "profile_pic_url": u.get("profile_pic_url", ""),
-                    "social_context": u.get("social_context", ""),
-                })
-
-        return {"users": users, "count": len(users)}
-
-    async def like_media(self, media_id: str) -> Dict[str, Any]:
-        """Like a post (mutation)."""
-        variables = {
-            "media_id": str(media_id),
-            "container_module": "single_post",
-        }
-        try:
-            data = await self._graphql_doc_query(
-                doc_id=DOC_IDS["like_media"],
-                variables=variables,
-                friendly_name="usePolarisLikeMediaLikeMutation",
-            )
-            return {"success": True, "media_id": str(media_id), "data": data}
-        except Exception as e:
-            logger.warning(f"Like media failed: {e}")
-            return {"success": False, "media_id": str(media_id), "error": str(e)}
-
-    async def _parse_timeline_connection(
-        self,
-        data: Dict,
-        connection_key: str,
-    ) -> Dict[str, Any]:
-        """Parse timeline/reels connection edges."""
-        connection = data.get("data", {}).get(connection_key, {})
-        edges = connection.get("edges", [])
-        page_info = connection.get("page_info", {})
-
-        posts = []
-        for edge in edges:
-            node = edge.get("node", {})
-            media = node.get("media", node)
-            posts.append(GraphQLAPI._parse_v2_media(media))
-
-        return {
-            "posts": posts,
-            "count": len(posts),
-            "has_next": page_info.get("has_next_page", False),
-            "end_cursor": page_info.get("end_cursor"),
-        }
+    # ═══════════════════════════════════════════════════════════
+    # FEED: Timeline (GraphQL doc_id)
+    # ═══════════════════════════════════════════════════════════
 
     async def get_timeline_v2(
         self,
         count: int = 12,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Home timeline via GraphQL v2."""
+        """
+        Home timeline feed via modern GraphQL doc_id POST.
+        Web-cookie compatible — no mobile session needed.
+
+        Response structure: xdt_api__v1__feed__timeline__connection
+        Edge types:
+            - media: regular posts from followed accounts
+            - explore_story: suggested/recommended posts
+            - ad: sponsored content (filtered out)
+            - suggested_users: people suggestions (filtered out)
+
+        Args:
+            count: Number of posts to fetch
+            after: Pagination cursor (end_cursor from previous page)
+
+        Returns:
+            dict:
+                - posts: List[dict] — parsed media items
+                - has_next: bool — more pages available
+                - end_cursor: str — cursor for next page
+                - count: int — items in this page
+                - raw_edge_types: dict — count of each edge type
+        """
+        variables = {
+            "data": {
+                "device_id": "web_client",
+                "is_async_ads_double_request": "0",
+                "is_async_ads_in_headload_enabled": "0",
+                "is_async_ads_rti": "0",
+                "rti_delivery_backend": "0",
+            },
+            "after": after,
+            "before": None,
+            "first": min(count, 12),
+            "last": None,
+            "variant": "home",
+        }
+
+        # Use root query for initial load, pagination query for scrolling
         if after:
             doc_id = DOC_IDS["feed_timeline_pagination"]
             friendly = "PolarisFeedRootPaginationCachedQuery_subscribe"
         else:
             doc_id = DOC_IDS["feed_timeline"]
             friendly = "PolarisFeedTimelineRootV2Query"
-
-        variables = {
-            "first": min(count, 20),
-            "after": after,
-            "before": None,
-            "last": None,
-            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": True,
-            "__relay_internal__pv__PolarisFeedShareMenurelayprovider": True,
-        }
 
         data = await self._graphql_doc_query(
             doc_id=doc_id,
@@ -676,66 +894,1295 @@ class AsyncGraphQLAPI:
             data, "xdt_api__v1__feed__timeline__connection"
         )
 
-    async def get_reels_trending_v2(
+    async def get_liked_v2(
         self,
-        count: int = 10,
+        count: int = 20,
         after: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Trending reels via GraphQL v2."""
+        """
+        Liked posts via modern GraphQL doc_id POST.
+        Replaces legacy query_hash which no longer works.
+
+        Args:
+            count: Posts per page
+            after: Pagination cursor
+
+        Returns:
+            dict: {posts, has_next, end_cursor, count}
+        """
+        sess = self._client.get_session()
+        user_id = str(sess.ds_user_id) if sess else ""
+
         variables = {
-            "first": min(count, 12),
+            "data": {"count": min(count, 50)},
+            "id": user_id,
             "after": after,
-            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": True,
+            "before": None,
+            "first": min(count, 50),
+            "last": None,
         }
 
         data = await self._graphql_doc_query(
-            doc_id=DOC_IDS["feed_reels_trending"],
+            doc_id=DOC_IDS["feed_liked"],
             variables=variables,
-            friendly_name="PolarisClipsTabContentQuery_connection",
+            friendly_name="PolarisLikedPostsQuery",
         )
 
         return await self._parse_timeline_connection(
-            data, "xdt_api__v1__clips__trending__connection"
+            data, "xdt_api__v1__feed__liked__connection"
         )
 
-    async def get_saved_v2(self) -> Dict[str, Any]:
-        """Saved/bookmarked posts via GraphQL v2."""
+    async def get_saved_v2(
+        self,
+        count: int = 20,
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Saved/bookmarked posts via modern GraphQL doc_id POST.
+        Replaces legacy query_hash.
+
+        Args:
+            count: Posts per page
+            after: Pagination cursor
+
+        Returns:
+            dict: {posts, has_next, end_cursor, count}
+        """
         variables = {
-            "first": 12,
-            "last": None,
-            "before": None,
-            "after": None,
-            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": True,
+            "collection_types": [
+                "ALL_MEDIA_AUTO_COLLECTION",
+                "MEDIA",
+                "AUDIO_AUTO_COLLECTION",
+            ],
+            "count": min(count, 50),
+            "get_cover_media_lists": True,
         }
 
         data = await self._graphql_doc_query(
             doc_id=DOC_IDS["feed_saved"],
             variables=variables,
-            friendly_name="PolarisSavedCollectionsContentQuery_connection",
+            friendly_name="PolarisProfileSavedTabContentQuery",
+        )
+
+        # Saved returns collections list, parse accordingly
+        conn_key = "xdt_api__v1__collections__list_graphql_connection"
+        if isinstance(data, dict) and "data" in data:
+            conn = data["data"].get(conn_key, {})
+        elif isinstance(data, dict):
+            conn = data.get(conn_key, {})
+        else:
+            conn = {}
+
+        if not conn:
+            return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}
+
+        edges = conn.get("edges", [])
+        page_info = conn.get("page_info", {})
+
+        # Extract collections with their media
+        collections = []
+        for edge in edges:
+            node = edge.get("node", {})
+            collections.append({
+                "collection_id": node.get("collection_id"),
+                "collection_name": node.get("collection_name"),
+                "media_count": node.get("collection_media_count", 0),
+                "cover_media_list": node.get("cover_media_list", []),
+            })
+
+        return {
+            "posts": collections,
+            "has_next": page_info.get("has_next_page", False),
+            "end_cursor": page_info.get("end_cursor"),
+            "count": len(collections),
+        }
+
+    async def get_tag_feed_v2(
+        self,
+        hashtag: str,
+        count: int = 20,
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Hashtag feed via modern GraphQL doc_id POST.
+        Replaces REST /feed/tag/ which requires mobile session.
+
+        Args:
+            hashtag: Hashtag name (without #)
+            count: Posts per page
+            after: Pagination cursor
+
+        Returns:
+            dict: {posts, has_next, end_cursor, count}
+        """
+        variables = {
+            "data": {"count": min(count, 50), "include_relationship_info": True},
+            "tag_name": hashtag.lstrip("#"),
+            "after": after,
+            "before": None,
+            "first": min(count, 50),
+            "last": None,
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["feed_tag"],
+            variables=variables,
+            friendly_name="PolarisHashtagFeedQuery",
+        )
+
+        # Try known connection names for tag feed
+        for conn_name in [
+            "xdt_api__v1__feed__tag__connection",
+            f"xdt_api__v1__feed__tag__{hashtag.lstrip('#')}__connection",
+        ]:
+            conn = data.get("data", {}).get(conn_name)
+            if conn:
+                return await self._parse_timeline_connection_from_conn(conn)
+
+        # Fallback: try first matching key
+        data_root = data.get("data", {})
+        for key, val in data_root.items():
+            if "tag" in key and isinstance(val, dict) and "edges" in val:
+                return await self._parse_timeline_connection_from_conn(val)
+
+        return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}
+
+    async def get_reels_trending_v2(
+        self,
+        count: int = 20,
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Trending reels via modern GraphQL doc_id POST.
+        Replaces REST /clips/trending/ which requires mobile session.
+
+        Args:
+            count: Reels per page
+            after: Pagination cursor
+
+        Returns:
+            dict: {posts, has_next, end_cursor, count}
+        """
+        variables = {
+            "data": {"count": min(count, 50)},
+            "after": after,
+            "before": None,
+            "first": min(count, 50),
+            "last": None,
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["feed_reels_trending"],
+            variables=variables,
+            friendly_name="PolarisClipsTabDesktopPaginationQuery",
         )
 
         return await self._parse_timeline_connection(
-            data, "xdt_api__v1__feed__saved__connection"
+            data, "xdt_api__v1__clips__home__connection_v2"
         )
 
     # ═══════════════════════════════════════════════════════════
-    # RAW QUERIES
+    # HELPER: Parse timeline connection (edges/page_info)
     # ═══════════════════════════════════════════════════════════
 
-    async def raw_query(
+    async def _parse_timeline_connection(
         self,
-        query_hash: str,
-        variables: Dict[str, Any],
+        data: Dict[str, Any],
+        connection_key: str,
     ) -> Dict[str, Any]:
-        """Send arbitrary GraphQL query (legacy)."""
-        return await self._graphql_query(query_hash, variables)
+        """
+        Parse GraphQL connection response with edges/page_info pattern.
 
-    async def raw_doc_query(
+        Handles:
+            - edges[].node.media → regular posts
+            - edges[].node.explore_story.media → suggested posts
+            - edges[].node.ad → ads (skipped)
+            - edges[].node.suggested_users → suggestions (skipped)
+
+        Args:
+            data: Raw GraphQL response
+            connection_key: Key under data.data that contains the connection
+
+        Returns:
+            dict: {posts, has_next, end_cursor, count, raw_edge_types}
+        """
+        conn = data.get("data", {}).get(connection_key, {})
+        return await self._parse_timeline_connection_from_conn(conn)
+
+    async def _parse_timeline_connection_from_conn(
         self,
-        doc_id: str,
-        variables: Dict[str, Any],
-        friendly_name: str = "",
+        conn: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Send arbitrary GraphQL doc_id query (modern POST)."""
-        return await self._graphql_doc_query(doc_id, variables, friendly_name)
+        """
+        Parse from an already-extracted connection dict.
+        """
+        if not conn:
+            return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}
 
+        edges = conn.get("edges", [])
+        page_info = conn.get("page_info", {})
+
+        posts = []
+        edge_types = {"media": 0, "explore": 0, "ad": 0, "suggested": 0, "other": 0}
+
+        for edge in edges:
+            node = edge.get("node", {})
+            media = None
+            source = "feed"
+
+            # Priority 1: direct media
+            if node.get("media"):
+                media = node["media"]
+                edge_types["media"] += 1
+                source = "feed"
+
+            # Priority 2: explore_story (suggested content)
+            elif node.get("explore_story"):
+                explore_media = node["explore_story"].get("media")
+                if explore_media:
+                    media = explore_media
+                    edge_types["explore"] += 1
+                    source = "explore"
+
+            # Skip: ads
+            elif node.get("ad"):
+                edge_types["ad"] += 1
+                continue
+
+            # Skip: suggested users
+            elif node.get("suggested_users"):
+                edge_types["suggested"] += 1
+                continue
+
+            # Skip: unknown types
+            else:
+                edge_types["other"] += 1
+                continue
+
+            if media:
+                parsed = await self._parse_v2_media(media)
+                parsed["feed_source"] = source
+                explore_info = (node.get("explore_story", {}) or {}).get("media", {})
+                if source == "explore" and explore_info:
+                    explore_meta = explore_info.get("explore", {})
+                    if explore_meta:
+                        parsed["explore_title"] = explore_meta.get("title", "")
+                posts.append(parsed)
+
+        return {
+            "posts": posts,
+            "has_next": page_info.get("has_next_page", False),
+            "end_cursor": page_info.get("end_cursor"),
+            "count": len(posts),
+            "raw_edge_types": edge_types,
+        }
+
+    # ═══════════════════════════════════════════════════════════
+    # HELPER: Parse v2 media node
+    # ═══════════════════════════════════════════════════════════
+
+    @staticmethod
+    async def _parse_v2_media(node: Dict) -> Dict[str, Any]:
+        """
+        Parse a v2 (REST-like) media node from GraphQL response.
+        Extracts ALL available data into a clean dict.
+
+        Args:
+            node: Raw media node from GraphQL
+
+        Returns:
+            dict: Structured media info
+        """
+        user = node.get("user", {}) or {}
+        caption_data = node.get("caption", {}) or {}
+        location = node.get("location", {}) or {}
+        music = node.get("music_metadata", {}) or {}
+        music_info = music.get("music_info", {}) or {}
+        music_asset = music_info.get("music_asset_info", {}) or {}
+        clips_meta = node.get("clips_metadata", {}) or {}
+
+        # Image versions
+        images = []
+        for img in (node.get("image_versions2", {}) or {}).get("candidates", []):
+            images.append({
+                "width": img.get("width"),
+                "height": img.get("height"),
+                "url": img.get("url", ""),
+            })
+
+        # Video versions
+        videos = []
+        for vid in (node.get("video_versions", []) or []):
+            videos.append({
+                "width": vid.get("width"),
+                "height": vid.get("height"),
+                "url": vid.get("url", ""),
+                "type": vid.get("type"),
+            })
+
+        # Carousel items
+        carousel = []
+        for item in (node.get("carousel_media", []) or []):
+            carousel.append({
+                "pk": item.get("pk"),
+                "media_type": item.get("media_type"),
+                "images": [
+                    {"width": c.get("width"), "height": c.get("height"), "url": c.get("url")}
+                    for c in (item.get("image_versions2", {}) or {}).get("candidates", [])
+                ],
+                "videos": [
+                    {"width": v.get("width"), "height": v.get("height"), "url": v.get("url")}
+                    for v in (item.get("video_versions", []) or [])
+                ],
+                "tagged_users": [
+                    {
+                        "username": (t.get("user", {}) or {}).get("username"),
+                        "pk": (t.get("user", {}) or {}).get("pk"),
+                        "position": t.get("position"),
+                    }
+                    for t in (item.get("usertags", {}) or {}).get("in", [])
+                ],
+            })
+
+        # Tagged users
+        tagged_users = []
+        for tag in (node.get("usertags", {}) or {}).get("in", []):
+            tag_user = tag.get("user", {}) or {}
+            tagged_users.append({
+                "username": tag_user.get("username"),
+                "pk": tag_user.get("pk"),
+                "full_name": tag_user.get("full_name", ""),
+                "is_verified": tag_user.get("is_verified", False),
+                "position": tag.get("position"),
+            })
+
+        # Top likers (facepile)
+        top_likers = [
+            u.get("username", "")
+            for u in (node.get("facepile_top_likers", []) or [])
+        ]
+
+        # Coauthors
+        coauthors = [
+            {
+                "pk": co.get("pk"),
+                "username": co.get("username"),
+                "full_name": co.get("full_name", ""),
+                "is_verified": co.get("is_verified", False),
+            }
+            for co in (node.get("coauthor_producers", []) or [])
+        ]
+
+        media_type_int = node.get("media_type", 0)
+        media_type_name = {1: "photo", 2: "video", 8: "carousel"}.get(media_type_int, str(media_type_int))
+
+        return {
+            # Identity
+            "pk": node.get("pk"),
+            "id": node.get("id", ""),
+            "code": node.get("code", ""),
+            "shortcode": node.get("code", ""),
+
+            # Type
+            "media_type": media_type_int,
+            "media_type_name": media_type_name,
+            "is_photo": media_type_int == 1,
+            "is_video": media_type_int == 2,
+            "is_carousel": media_type_int == 8,
+            "is_reel": bool(clips_meta),
+            "product_type": node.get("product_type", ""),
+
+            # Engagement
+            "like_count": node.get("like_count", 0),
+            "comment_count": node.get("comment_count", 0),
+            "play_count": node.get("play_count"),
+            "view_count": node.get("view_count"),
+            "reshare_count": node.get("reshare_count"),
+            "fb_play_count": node.get("fb_play_count"),
+            "top_likers": top_likers,
+
+            # Caption
+            "caption": caption_data.get("text", "") if isinstance(caption_data, dict) else "",
+            "caption_created_at": caption_data.get("created_at") if isinstance(caption_data, dict) else None,
+
+            # Owner
+            "user": {
+                "pk": user.get("pk"),
+                "username": user.get("username", ""),
+                "full_name": user.get("full_name", ""),
+                "is_verified": user.get("is_verified", False),
+                "is_private": user.get("is_private", False),
+                "profile_pic_url": user.get("profile_pic_url", ""),
+            },
+            "coauthors": coauthors,
+
+            # Timestamps
+            "taken_at": node.get("taken_at"),
+            "device_timestamp": node.get("device_timestamp"),
+
+            # Media
+            "images": images,
+            "videos": videos,
+            "carousel": carousel,
+            "carousel_media_count": node.get("carousel_media_count"),
+            "original_width": node.get("original_width"),
+            "original_height": node.get("original_height"),
+            "video_duration": node.get("video_duration"),
+
+            # Location
+            "location": {
+                "pk": location.get("pk"),
+                "name": location.get("name", ""),
+                "address": location.get("address", ""),
+                "city": location.get("city", ""),
+                "lat": location.get("lat"),
+                "lng": location.get("lng"),
+                "short_name": location.get("short_name", ""),
+            } if location else None,
+
+            # Tagged
+            "tagged_users": tagged_users,
+
+            # Music
+            "music": {
+                "title": music_asset.get("title", ""),
+                "artist": music_asset.get("display_artist", ""),
+                "duration_ms": music_asset.get("duration_in_ms"),
+                "id": music_asset.get("audio_asset_id"),
+            } if music_asset else None,
+
+            # Flags
+            "comments_disabled": node.get("comments_disabled", False),
+            "commenting_disabled_for_viewer": node.get("commenting_disabled_for_viewer", False),
+            "like_and_view_counts_disabled": node.get("like_and_view_counts_disabled", False),
+            "has_liked": node.get("has_liked", False),
+            "has_saved": node.get("has_viewer_saved", False),
+            "is_paid_partnership": node.get("is_paid_partnership", False),
+            "is_organic_product_tagging_eligible": node.get("is_organic_product_tagging_eligible", False),
+        }
+
+    # ═══════════════════════════════════════════════════════════
+    # HOVER CARD — Mini profile info (fast, lightweight)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_hover_card(
+        self,
+        user_id: str | int,
+        username: str,
+    ) -> Dict[str, Any]:
+        """
+        Get mini profile card (hover card) — lightweight profile info.
+        Fastest way to get basic profile data without full API call.
+
+        Uses doc_id: PolarisUserHoverCardContentV2Query
+
+        Args:
+            user_id: User PK (numeric)
+            username: Username string
+
+        Returns:
+            dict:
+                - pk: str — user PK
+                - username: str
+                - full_name: str
+                - biography: str
+                - is_verified: bool
+                - is_private: bool
+                - follower_count: int
+                - following_count: int
+                - media_count: int
+                - profile_pic_url: str
+                - mutual_followers: list — common followers
+                - is_following: bool — you follow them
+                - is_followed_by: bool — they follow you
+                - raw: dict — full unprocessed response
+        """
+        variables = {
+            "userID": str(user_id),
+            "username": username,
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["profile_hover_card"],
+            variables=variables,
+            friendly_name="PolarisUserHoverCardContentV2Query",
+        )
+
+        # Parse response — key is typically xdt_api__v1__users__user_id__info
+        user_data = {}
+        raw_data = data.get("data", {}) if isinstance(data, dict) else {}
+
+        # Find the user info key dynamically
+        for key, val in raw_data.items():
+            if isinstance(val, dict) and ("username" in val or "full_name" in val):
+                user_data = val
+                break
+
+        if not user_data:
+            # Fallback: try nested structures
+            for key, val in raw_data.items():
+                if isinstance(val, dict) and "user" in val:
+                    user_data = val.get("user", {})
+                    break
+
+        friendship = user_data.get("friendship_status", {}) or {}
+        mutual = user_data.get("mutual_followers", {}) or {}
+        mutual_users = mutual.get("users", []) or []
+
+        return {
+            "pk": user_data.get("pk") or user_data.get("id"),
+            "username": user_data.get("username", username),
+            "full_name": user_data.get("full_name", ""),
+            "biography": user_data.get("biography", ""),
+            "is_verified": user_data.get("is_verified", False),
+            "is_private": user_data.get("is_private", False),
+            "follower_count": user_data.get("follower_count", 0),
+            "following_count": user_data.get("following_count", 0),
+            "media_count": user_data.get("media_count", 0),
+            "profile_pic_url": user_data.get("profile_pic_url", ""),
+            "mutual_followers": [
+                {
+                    "pk": u.get("pk"),
+                    "username": u.get("username", ""),
+                    "full_name": u.get("full_name", ""),
+                    "profile_pic_url": u.get("profile_pic_url", ""),
+                }
+                for u in mutual_users
+            ],
+            "mutual_count": mutual.get("count", 0),
+            "is_following": friendship.get("following", False),
+            "is_followed_by": friendship.get("followed_by", False),
+            "is_blocking": friendship.get("blocking", False),
+            "is_muting": friendship.get("muting", False),
+            "raw": user_data,
+        }
+
+    # ═══════════════════════════════════════════════════════════
+    # SUGGESTED USERS — Similar accounts discovery (chaining)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_suggested_users(
+        self,
+        user_id: str | int,
+        module: str = "profile",
+    ) -> Dict[str, Any]:
+        """
+        Get suggested/similar users based on a target profile.
+        Equivalent to Instagram's "Suggested for you" section.
+
+        Uses doc_id: PolarisProfileSuggestedUsersWithPreloadableQuery
+
+        Args:
+            user_id: Target user PK
+            module: Context module (default: "profile")
+
+        Returns:
+            dict:
+                - users: list of user dicts with:
+                    - pk, username, full_name, is_verified, is_private
+                    - profile_pic_url, follower_count
+                    - social_context: str — "Followed by X and Y"
+                    - is_following: bool
+                - count: int
+                - raw: dict
+        """
+        variables = {
+            "module": module,
+            "target_id": str(user_id),
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["profile_suggested"],
+            variables=variables,
+            friendly_name="PolarisProfileSuggestedUsersWithPreloadableQuery",
+        )
+
+        raw_data = data.get("data", {}) if isinstance(data, dict) else {}
+
+        # Find the suggestions key dynamically
+        suggestions = []
+        for key, val in raw_data.items():
+            if isinstance(val, dict):
+                # Look for users array
+                users_list = val.get("users", [])
+                if users_list:
+                    suggestions = users_list
+                    break
+                # Look for edges pattern
+                edges = val.get("edges", [])
+                if edges:
+                    suggestions = [e.get("node", {}) for e in edges]
+                    break
+            elif isinstance(val, list):
+                suggestions = val
+                break
+
+        users = []
+        for user in suggestions:
+            if not isinstance(user, dict):
+                continue
+
+            friendship = user.get("friendship_status", {}) or {}
+            social_ctx = user.get("social_context", "")
+
+            # Handle different social_context formats
+            if isinstance(social_ctx, dict):
+                social_ctx = social_ctx.get("text", "")
+            elif isinstance(social_ctx, list):
+                social_ctx = ", ".join(str(s) for s in social_ctx)
+
+            users.append({
+                "pk": user.get("pk") or user.get("id"),
+                "username": user.get("username", ""),
+                "full_name": user.get("full_name", ""),
+                "is_verified": user.get("is_verified", False),
+                "is_private": user.get("is_private", False),
+                "profile_pic_url": user.get("profile_pic_url", ""),
+                "follower_count": user.get("follower_count", 0),
+                "social_context": social_ctx,
+                "is_following": friendship.get("following", False),
+                "is_followed_by": friendship.get("followed_by", False),
+                "caption": user.get("biography", ""),
+            })
+
+        return {
+            "users": users,
+            "count": len(users),
+            "raw": raw_data,
+        }
+
+    # ═══════════════════════════════════════════════════════════
+    # LIKE MEDIA — Like/unlike a post (mutation)
+    # ═══════════════════════════════════════════════════════════
+
+    async def like_media(
+        self,
+        media_id: str | int,
+        container_module: str = "single_post",
+    ) -> Dict[str, Any]:
+        """
+        Like a post via GraphQL mutation.
+
+        Uses doc_id: usePolarisLikeMediaLikeMutation
+
+        Args:
+            media_id: Media PK (numeric)
+            container_module: Context where like happened
+                - "single_post" — from post detail page
+                - "feed_timeline" — from home feed
+                - "profile" — from profile page
+
+        Returns:
+            dict:
+                - success: bool
+                - media_id: str
+                - raw: dict
+        """
+        variables = {
+            "media_id": str(media_id),
+            "container_module": container_module,
+        }
+
+        try:
+            data = await self._graphql_doc_query(
+                doc_id=DOC_IDS["like_media"],
+                variables=variables,
+                friendly_name="usePolarisLikeMediaLikeMutation",
+            )
+
+            raw_data = data.get("data", {}) if isinstance(data, dict) else {}
+
+            # Check for success — mutation returns the liked media info
+            success = False
+            for key, val in raw_data.items():
+                if isinstance(val, dict):
+                    # Look for liked status
+                    if val.get("status") == "ok" or "media" in val:
+                        success = True
+                        break
+                elif val is not None:
+                    success = True
+
+            # Also check if no errors
+            errors = data.get("errors", []) if isinstance(data, dict) else []
+            if not errors and raw_data:
+                success = True
+
+            return {
+                "success": success,
+                "media_id": str(media_id),
+                "raw": raw_data,
+            }
+
+        except Exception as e:
+            logger.error(f"[GraphQL] like_media failed: {e}")
+            return {
+                "success": False,
+                "media_id": str(media_id),
+                "error": str(e),
+            }
+
+    # ═══════════════════════════════════════════════════════════
+    # PROFILE REELS v2 — Reels tab with play_count/like_count
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_profile_reels_v2(
+        self,
+        user_id: str | int,
+        page_size: int = 12,
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        User reels tab via modern doc_id (PolarisProfileReelsTabContentQuery).
+        Returns rich data including play_count, like_count, comment_count.
+
+        Args:
+            user_id: Target user PK
+            page_size: Reels per page (max 12)
+            after: Pagination cursor (end_cursor from previous page)
+
+        Returns:
+            dict:
+                - posts: list of reel dicts with play_count, like_count, etc.
+                - has_next: bool
+                - end_cursor: str
+                - count: int
+        """
+        variables: Dict[str, Any] = {
+            "data": {
+                "include_feed_video": True,
+                "page_size": page_size,
+                "target_user_id": str(user_id),
+            }
+        }
+        if after:
+            variables["data"]["max_id"] = after
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["profile_reels_v2"],
+            variables=variables,
+            friendly_name="PolarisProfileReelsTabContentQuery",
+        )
+
+        raw_data = data.get("data", {}) if isinstance(data, dict) else {}
+
+        # Find the connection key
+        conn = {}
+        for key, val in raw_data.items():
+            if isinstance(val, dict) and "edges" in val:
+                conn = val
+                break
+
+        edges = conn.get("edges", [])
+        page_info = conn.get("page_info", {})
+
+        posts = []
+        for edge in edges:
+            node = edge.get("node", {})
+            media = node.get("media", node)  # Sometimes nested under media
+            if not isinstance(media, dict):
+                continue
+
+            user = media.get("user", {}) or {}
+            caption_data = media.get("caption", {}) or {}
+            caption_text = caption_data.get("text", "") if isinstance(caption_data, dict) else ""
+
+            posts.append({
+                "pk": media.get("pk"),
+                "id": media.get("id"),
+                "code": media.get("code", ""),
+                "media_type": media.get("media_type", 2),
+                "play_count": media.get("play_count", 0),
+                "like_count": media.get("like_count", 0),
+                "comment_count": media.get("comment_count", 0),
+                "caption": caption_text,
+                "taken_at": media.get("taken_at"),
+                "video_duration": media.get("video_duration"),
+                "thumbnail_url": (
+                    media.get("image_versions2", {}).get("candidates", [{}])[0].get("url", "")
+                    if media.get("image_versions2") else ""
+                ),
+                "user": {
+                    "pk": user.get("pk"),
+                    "username": user.get("username", ""),
+                },
+            })
+
+        return {
+            "posts": posts,
+            "has_next": page_info.get("has_next_page", False),
+            "end_cursor": page_info.get("end_cursor"),
+            "count": len(posts),
+        }
+
+    async def get_all_profile_reels(
+        self,
+        user_id: str | int,
+        max_count: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get ALL reels via auto-pagination.
+
+        Args:
+            user_id: User PK
+            max_count: Maximum reels to fetch
+
+        Returns:
+            list: All reels with play_count, like_count, etc.
+        """
+        all_posts = []
+        cursor = None
+
+        while len(all_posts) < max_count:
+            result = await self.get_profile_reels_v2(
+                user_id=user_id,
+                page_size=12,
+                after=cursor,
+            )
+            posts = result.get("posts", [])
+            if not posts:
+                break
+            all_posts.extend(posts)
+            if not result.get("has_next"):
+                break
+            cursor = result.get("end_cursor")
+            if not cursor:
+                break
+
+        return all_posts[:max_count]
+
+    # ═══════════════════════════════════════════════════════════
+    # PROFILE TAGGED v2 — Tagged posts (new doc_id)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_profile_tagged_v2(
+        self,
+        user_id: str | int,
+        count: int = 12,
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Tagged posts via modern doc_id (PolarisProfileTaggedTabContentQuery).
+        Posts where the user is tagged by others.
+
+        Args:
+            user_id: Target user PK
+            count: Posts per page (max 12)
+            after: Pagination cursor
+
+        Returns:
+            dict:
+                - posts: list of media dicts
+                - has_next: bool
+                - end_cursor: str
+                - count: int
+        """
+        variables: Dict[str, Any] = {
+            "count": count,
+            "user_id": str(user_id),
+        }
+        if after:
+            variables["after"] = after
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["profile_tagged_v2"],
+            variables=variables,
+            friendly_name="PolarisProfileTaggedTabContentQuery",
+        )
+
+        raw_data = data.get("data", {}) if isinstance(data, dict) else {}
+
+        # Find connection
+        conn = {}
+        for key, val in raw_data.items():
+            if isinstance(val, dict) and "edges" in val:
+                conn = val
+                break
+
+        edges = conn.get("edges", [])
+        page_info = conn.get("page_info", {})
+
+        posts = []
+        for edge in edges:
+            node = edge.get("node", {})
+            if not isinstance(node, dict):
+                continue
+
+            user = node.get("user", {}) or {}
+            caption_data = node.get("caption", {}) or {}
+            caption_text = caption_data.get("text", "") if isinstance(caption_data, dict) else ""
+
+            posts.append({
+                "pk": node.get("pk"),
+                "id": node.get("id"),
+                "code": node.get("code", ""),
+                "media_type": node.get("media_type", 1),
+                "like_count": node.get("like_count", 0),
+                "comment_count": node.get("comment_count", 0),
+                "caption": caption_text,
+                "taken_at": node.get("taken_at"),
+                "carousel_media_count": node.get("carousel_media_count"),
+                "thumbnail_url": (
+                    node.get("image_versions2", {}).get("candidates", [{}])[0].get("url", "")
+                    if node.get("image_versions2") else
+                    node.get("display_uri", "")
+                ),
+                "user": {
+                    "pk": user.get("pk"),
+                    "username": user.get("username", ""),
+                    "full_name": user.get("full_name", ""),
+                    "is_verified": user.get("is_verified", False),
+                },
+                "accessibility_caption": node.get("accessibility_caption"),
+            })
+
+        return {
+            "posts": posts,
+            "has_next": page_info.get("has_next_page", False),
+            "end_cursor": page_info.get("end_cursor"),
+            "count": len(posts),
+        }
+
+    async def get_all_profile_tagged(
+        self,
+        user_id: str | int,
+        max_count: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get ALL tagged posts via auto-pagination.
+
+        Args:
+            user_id: User PK
+            max_count: Maximum posts to fetch
+
+        Returns:
+            list: All tagged posts
+        """
+        all_posts = []
+        cursor = None
+
+        while len(all_posts) < max_count:
+            result = await self.get_profile_tagged_v2(
+                user_id=user_id,
+                count=12,
+                after=cursor,
+            )
+            posts = result.get("posts", [])
+            if not posts:
+                break
+            all_posts.extend(posts)
+            if not result.get("has_next"):
+                break
+            cursor = result.get("end_cursor")
+            if not cursor:
+                break
+
+        return all_posts[:max_count]
+
+    # ═══════════════════════════════════════════════════════════
+    # LOCATION POSTS — Posts by location (GraphQL)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_location_posts(
+        self,
+        location_id: str | int,
+        count: int = 12,
+        tab: str = "ranked",
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Posts by location via GraphQL (PolarisLocationPageTabContentQuery).
+        Better than REST — works with web cookies, no mobile session needed.
+
+        Args:
+            location_id: Location PK (e.g., "231385413" for Tashkent)
+            count: Posts per page
+            tab: "ranked" (top) or "recent"
+            after: Pagination cursor
+
+        Returns:
+            dict:
+                - posts: list of media dicts
+                - has_next: bool
+                - end_cursor: str
+                - count: int
+        """
+        variables: Dict[str, Any] = {
+            "first": count,
+            "location_id": str(location_id),
+            "page_size_override": min(count, 6),
+            "tab": tab,
+        }
+        if after:
+            variables["after"] = after
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["location_posts"],
+            variables=variables,
+            friendly_name="PolarisLocationPageTabContentQuery_connection",
+        )
+
+        raw_data = data.get("data", {}) if isinstance(data, dict) else {}
+
+        # Find connection
+        conn = {}
+        for key, val in raw_data.items():
+            if isinstance(val, dict) and "edges" in val:
+                conn = val
+                break
+
+        edges = conn.get("edges", [])
+        page_info = conn.get("page_info", {})
+
+        posts = []
+        for edge in edges:
+            node = edge.get("node", {})
+            if not isinstance(node, dict):
+                continue
+
+            user = node.get("user", {}) or {}
+            caption_data = node.get("caption", {}) or {}
+            caption_text = caption_data.get("text", "") if isinstance(caption_data, dict) else ""
+            location = node.get("location", {}) or {}
+
+            posts.append({
+                "pk": node.get("pk"),
+                "id": node.get("id"),
+                "code": node.get("code", ""),
+                "media_type": node.get("media_type", 1),
+                "like_count": node.get("like_count", 0),
+                "comment_count": node.get("comment_count", 0),
+                "play_count": node.get("play_count"),
+                "caption": caption_text,
+                "taken_at": node.get("taken_at"),
+                "thumbnail_url": (
+                    node.get("image_versions2", {}).get("candidates", [{}])[0].get("url", "")
+                    if node.get("image_versions2") else ""
+                ),
+                "user": {
+                    "pk": user.get("pk"),
+                    "username": user.get("username", ""),
+                    "full_name": user.get("full_name", ""),
+                    "is_verified": user.get("is_verified", False),
+                },
+                "location": {
+                    "pk": location.get("pk"),
+                    "name": location.get("name", ""),
+                },
+            })
+
+        return {
+            "posts": posts,
+            "has_next": page_info.get("has_next_page", False),
+            "end_cursor": page_info.get("end_cursor"),
+            "count": len(posts),
+        }
+
+    async def get_all_location_posts(
+        self,
+        location_id: str | int,
+        max_count: int = 200,
+        tab: str = "ranked",
+    ) -> List[Dict[str, Any]]:
+        """
+        Get ALL location posts via auto-pagination.
+
+        Args:
+            location_id: Location PK
+            max_count: Maximum posts to fetch
+            tab: "ranked" or "recent"
+
+        Returns:
+            list: All posts at this location
+        """
+        all_posts = []
+        cursor = None
+
+        while len(all_posts) < max_count:
+            result = await self.get_location_posts(
+                location_id=location_id,
+                count=12,
+                tab=tab,
+                after=cursor,
+            )
+            posts = result.get("posts", [])
+            if not posts:
+                break
+            all_posts.extend(posts)
+            if not result.get("has_next"):
+                break
+            cursor = result.get("end_cursor")
+            if not cursor:
+                break
+
+        return all_posts[:max_count]
+
+    # ═══════════════════════════════════════════════════════════
+    # HIGHLIGHTS ITEMS — Batch fetch highlight reel items
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_highlights_items(
+        self,
+        highlight_ids: List[str | int],
+    ) -> Dict[str, Any]:
+        """
+        Batch fetch items from multiple highlight reels.
+        Uses doc_id for web-compatible access (no mobile session needed).
+
+        Args:
+            highlight_ids: List of highlight reel IDs
+                (e.g., ["highlight:17854360229135021", ...])
+
+        Returns:
+            dict:
+                - highlights: list of highlight dicts, each with:
+                    - id: str
+                    - title: str
+                    - items: list of story items
+                    - cover_media: dict
+                    - media_count: int
+                - count: int
+        """
+        variables = {
+            "highlight_reel_ids": [str(h) for h in highlight_ids],
+            "precomposed_overlay": False,
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["highlights_items"],
+            variables=variables,
+            friendly_name="PolarisProfileHighlightReelsQuery",
+        )
+
+        raw_data = data.get("data", {}) if isinstance(data, dict) else {}
+
+        # Find highlights in response — key varies
+        reels_data = {}
+        for key, val in raw_data.items():
+            if isinstance(val, dict):
+                reels_data = val
+                break
+
+        # Parse each highlight reel
+        highlights = []
+        # Could be dict of reels or list
+        reels = reels_data.get("reels", reels_data)
+        if isinstance(reels, dict):
+            for reel_id, reel in reels.items():
+                if not isinstance(reel, dict):
+                    continue
+                items = reel.get("items", [])
+                highlights.append({
+                    "id": reel.get("id", reel_id),
+                    "title": reel.get("title", ""),
+                    "media_count": reel.get("media_count", len(items)),
+                    "cover_media": reel.get("cover_media", {}),
+                    "created_at": reel.get("created_at"),
+                    "items": [
+                        {
+                            "pk": item.get("pk"),
+                            "id": item.get("id"),
+                            "media_type": item.get("media_type", 1),
+                            "taken_at": item.get("taken_at"),
+                            "image_url": (
+                                item.get("image_versions2", {}).get("candidates", [{}])[0].get("url", "")
+                                if item.get("image_versions2") else ""
+                            ),
+                            "video_url": (
+                                item.get("video_versions", [{}])[0].get("url", "")
+                                if item.get("video_versions") else ""
+                            ),
+                            "video_duration": item.get("video_duration"),
+                        }
+                        for item in items
+                        if isinstance(item, dict)
+                    ],
+                })
+        elif isinstance(reels, list):
+            for reel in reels:
+                if not isinstance(reel, dict):
+                    continue
+                items = reel.get("items", [])
+                highlights.append({
+                    "id": reel.get("id"),
+                    "title": reel.get("title", ""),
+                    "media_count": reel.get("media_count", len(items)),
+                    "cover_media": reel.get("cover_media", {}),
+                    "created_at": reel.get("created_at"),
+                    "items": [
+                        {
+                            "pk": item.get("pk"),
+                            "id": item.get("id"),
+                            "media_type": item.get("media_type", 1),
+                            "taken_at": item.get("taken_at"),
+                            "image_url": (
+                                item.get("image_versions2", {}).get("candidates", [{}])[0].get("url", "")
+                                if item.get("image_versions2") else ""
+                            ),
+                            "video_url": (
+                                item.get("video_versions", [{}])[0].get("url", "")
+                                if item.get("video_versions") else ""
+                            ),
+                            "video_duration": item.get("video_duration"),
+                        }
+                        for item in items
+                        if isinstance(item, dict)
+                    ],
+                })
+
+        return {
+            "highlights": highlights,
+            "count": len(highlights),
+        }
+
+    # ═══════════════════════════════════════════════════════════
+    # SAVE / UNSAVE MEDIA — Bookmark posts
+    # ═══════════════════════════════════════════════════════════
+
+    async def save_media(self, media_id: str | int) -> Dict[str, Any]:
+        """
+        Save (bookmark) a post.
+
+        Args:
+            media_id: Media PK (numeric)
+
+        Returns:
+            dict: {success: bool, media_id: str}
+        """
+        try:
+            result = await self._client.post(
+                f"/web/save/{media_id}/save/",
+                rate_category="post_default",
+            )
+            return {
+                "success": result.get("status") == "ok",
+                "media_id": str(media_id),
+                "raw": result,
+            }
+        except Exception as e:
+            logger.error(f"[GraphQL] save_media failed: {e}")
+            return {"success": False, "media_id": str(media_id), "error": str(e)}
+
+    async def unsave_media(self, media_id: str | int) -> Dict[str, Any]:
+        """
+        Unsave (remove bookmark) a post.
+
+        Args:
+            media_id: Media PK (numeric)
+
+        Returns:
+            dict: {success: bool, media_id: str}
+        """
+        try:
+            result = await self._client.post(
+                f"/web/save/{media_id}/unsave/",
+                rate_category="post_default",
+            )
+            return {
+                "success": result.get("status") == "ok",
+                "media_id": str(media_id),
+                "raw": result,
+            }
+        except Exception as e:
+            logger.error(f"[GraphQL] unsave_media failed: {e}")
+            return {"success": False, "media_id": str(media_id), "error": str(e)}

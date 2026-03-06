@@ -2,10 +2,10 @@
 Notifications API
 =================
 Instagram notifications and activity feed.
-/news/inbox/ endpoint - works via POST method.
+/news/inbox/ endpoint — works via POST method.
 
 Response structure:
-    - counts: 17 category counters (likes, comments, relationships, ...)
+    - counts: 15 category counters (likes, comments, relationships, ...)
     - new_stories: Unread notifications
     - old_stories: Old notifications
     - continuation_token: Token for pagination
@@ -13,8 +13,8 @@ Response structure:
     - partition: "Today", "This week", "This month", "Earlier" categories
 
 Each story/notification structure:
-    - story_type: 13 (comment_like), 101 (user_followed), 1686 (threads), ...
-    - notif_name: "comment_like", "user_followed", "ig_text_*", ...
+    - story_type: 101 (user_followed), 13 (comment_like), 1487 (threads), 95008 (system)
+    - notif_name: "user_followed", "comment_like", "like", "qp_ig_nf_generic", ...
     - type: numeric type (1, 3, 4, 13, 20)
     - args:
         - text: Plain text version
@@ -27,9 +27,13 @@ Each story/notification structure:
         - extra_actions: ["hide", "block", "remove_follower"] (for follow)
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+import asyncio
 from ..async_client import AsyncHttpClient
+from ..models.notification import (
+    Notification, NotifCounts, NotifInbox,
+)
 
 
 class AsyncNotificationsAPI:
@@ -38,88 +42,158 @@ class AsyncNotificationsAPI:
     def __init__(self, client: AsyncHttpClient):
         self._client = client
 
+    # ─── RAW METHODS (returns dict) ────────────────
+
     async def get_activity(self) -> Dict[str, Any]:
         """
-        Notifications (activity/news inbox).
-        
-        Fetched via POST /api/v1/news/inbox/.
+        Notifications (activity/news inbox) — RAW dict.
+
+        Retrieved via POST /api/v1/news/inbox/.
 
         Returns:
-            dict:
-                - counts: Counters by type
-                    - likes, comments, comment_likes, relationships
-                    - usertags, photos_of_you, requests, new_posts
-                    - media_to_approve, promotional, fundraiser, shopping_notification
-                - new_stories: New (unread) notifications list
-                - old_stories: Old notifications
-                - continuation_token: Token for next page
-                - is_last_page: bool
-                - partition: Time categories
-                - status: "ok"
+            dict: counts, new_stories, old_stories, ...
         """
         return await self._client.post(
             "/news/inbox/",
             rate_category="get_default",
         )
 
-    async def get_activity_counts(self) -> Dict[str, int]:
+    async def mark_inbox_seen(self) -> Dict[str, Any]:
         """
-        Get only notification counters.
+        Mark all notifications as read.
+        POST /api/v1/news/inbox_seen/
 
         Returns:
-            dict: Unread notification count by type.
-                Keys: likes, comments, comment_likes, relationships,
-                usertags, photos_of_you, requests, new_posts, etc.
+            dict: {status: "ok"}
+        """
+        return await self._client.post(
+            "/news/inbox_seen/",
+            rate_category="post_default",
+        )
+
+    async def get_activity_counts(self) -> Dict[str, int]:
+        """
+        Get only notification counters (raw dict).
+
+        Returns:
+            dict: likes, comments, relationships, ...
         """
         data = await self.get_activity()
         return data.get("counts", {})
 
-    async def get_new_notifications(self) -> list:
+    # ─── PARSED METHODS (returns Model) ────────────
+
+    async def get_inbox_parsed(self) -> NotifInbox:
         """
-        Only new (unread) notifications.
+        Full inbox — all notifications parsed.
 
         Returns:
-            list: New notifications list.
-                Each element: {story_type, notif_name, type, args, pk, ...}
+            NotifInbox: counts, new_notifications, old_notifications
+
+        Usage:
+            inbox = ig.notifications.get_inbox_parsed()
+            print(f"Unread: {inbox.counts.total}")
+            for n in inbox.follows:
+                print(f"  {n.follower_username} followed you ({n.time_ago})")
+            for n in inbox.likes:
+                print(f"  {n.profile_name} liked — {n.media_shortcode}")
         """
+        data = await self.get_activity()
+        return NotifInbox.from_response(data)
+
+    async def get_counts_parsed(self) -> NotifCounts:
+        """
+        Notification counters — Pydantic model.
+
+        Returns:
+            NotifCounts: likes, comments, relationships, ...
+
+        Usage:
+            counts = ig.notifications.get_counts_parsed()
+            print(f"Likes: {counts.likes}")
+            print(f"Followers: {counts.relationships}")
+            print(f"Total: {counts.total}")
+        """
+        data = await self.get_activity()
+        return NotifCounts(**data.get("counts", {}))
+
+    async def get_all_parsed(self) -> List[Notification]:
+        """
+        All notifications — parsed list.
+
+        Returns:
+            List[Notification]: New ones first, then old.
+
+        Usage:
+            for n in ig.notifications.get_all_parsed():
+                print(f"[{n.notif_name}] {n.text} ({n.time_ago})")
+        """
+        inbox = await self.get_inbox_parsed()
+        return inbox.all_notifications
+
+    async def get_new_parsed(self) -> List[Notification]:
+        """
+        Only new (unread) notifications — parsed.
+
+        Returns:
+            List[Notification]: Unread notifications.
+        """
+        inbox = await self.get_inbox_parsed()
+        return inbox.new_notifications
+
+    async def get_follow_notifications(self) -> List[Notification]:
+        """
+        Only follow notifications — parsed.
+
+        Each Notification contains:
+            - n.follower_username: Who followed
+            - n.follower_info: Full user info (NotifUserInfo)
+            - n.is_following_back: Am I following back
+            - n.time_ago: When
+
+        Returns:
+            List[Notification]: Follow notifications.
+
+        Usage:
+            for n in ig.notifications.get_follow_notifications():
+                user = n.follower_info
+                print(f"  {user.username} ({user.full_name})")
+                print(f"  Verified: {user.is_verified} | Private: {user.is_private}")
+                print(f"  Following back: {n.is_following_back}")
+                print(f"  Avatar: {user.hd_profile_pic}")
+        """
+        inbox = await self.get_inbox_parsed()
+        return inbox.follows
+
+    async def get_like_notifications(self) -> List[Notification]:
+        """
+        Only like notifications — parsed.
+
+        Each Notification contains:
+            - n.profile_name: Who liked
+            - n.media_shortcode: Which post
+            - n.media_image: Post image
+            - n.text: Text ("user liked your comment: ...")
+
+        Returns:
+            List[Notification]: Like notifications.
+        """
+        inbox = await self.get_inbox_parsed()
+        return inbox.likes
+
+    # ─── LEGACY COMPAT ───────────────────────────────
+
+    async def get_new_notifications(self) -> list:
+        """Unread notifications (raw dict)."""
         data = await self.get_activity()
         return data.get("new_stories", [])
 
     async def get_all_notifications(self) -> list:
-        """
-        All notifications (new + old).
-
-        Returns:
-            list: All notifications, new ones first.
-        """
+        """All notifications (raw dict)."""
         data = await self.get_activity()
         new = data.get("new_stories", [])
         old = data.get("old_stories", [])
         return new + old
-
-    async def get_follow_notifications(self) -> list:
-        """
-        Get only follow notifications.
-
-        Returns:
-            list: Follow notifications (story_type=101, notif_name='user_followed')
-                Each element contains inline_follow with user_info and friendship_status
-        """
-        all_notifs = await self.get_all_notifications()
-        return [n for n in all_notifs if n.get("notif_name") == "user_followed"]
-
-    async def get_like_notifications(self) -> list:
-        """
-        Get only like notifications.
-
-        Returns:
-            list: Like notifications (notif_name='comment_like', 'like', ...)
-        """
-        all_notifs = await self.get_all_notifications()
-        return [
-            n for n in all_notifs
-            if n.get("notif_name") in ("like", "comment_like", "comment_mention")
-        ]
 
     async def get_timeline(self) -> Dict[str, Any]:
         """
@@ -127,11 +201,11 @@ class AsyncNotificationsAPI:
 
         Returns:
             dict: Timeline feed data
-                - feed_items: Posts list
-                - num_results: Number of results
-                - more_available: Whether more are available
         """
-        return await self._client.get(
-            "/feed/timeline/",
-            rate_category="get_default",
-        )
+        try:
+            return await self._client.get(
+                "/feed/timeline/",
+                rate_category="get_default",
+            )
+        except Exception:
+            return {"status": "fail", "message": "timeline requires active session"}

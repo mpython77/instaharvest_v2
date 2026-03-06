@@ -1,7 +1,20 @@
 """
-Async Data Pipeline — SQLite / JSONL Export
-============================================
-Async version of PipelineAPI. Full feature parity.
+Data Pipeline — SQLite / JSONL Export
+======================================
+Stream Instagram data to SQLite database or JSONL files.
+Incremental updates with deduplication.
+
+Usage:
+    ig = Instagram.from_env(".env")
+
+    # Export to SQLite
+    ig.pipeline.to_sqlite("cristiano", "data.db")
+
+    # Export to JSONL (one JSON per line)
+    ig.pipeline.to_jsonl("cristiano", "data.jsonl")
+
+    # Incremental update
+    ig.pipeline.to_sqlite("cristiano", "data.db", incremental=True)
 """
 
 import json
@@ -17,9 +30,9 @@ logger = logging.getLogger("instaharvest_v2.pipeline")
 
 class AsyncPipelineAPI:
     """
-    Async data pipeline — stream Instagram data to databases/files.
+    Data pipeline — stream Instagram data to databases/files.
 
-    Composes: AsyncUsersAPI, AsyncFriendshipsAPI, AsyncMediaAPI.
+    Composes: UsersAPI, FriendshipsAPI, MediaAPI.
     """
 
     def __init__(self, client, users_api, friendships_api, media_api):
@@ -27,6 +40,10 @@ class AsyncPipelineAPI:
         self._users = users_api
         self._friendships = friendships_api
         self._media = media_api
+
+    # ═══════════════════════════════════════════════════════════
+    # SQLITE
+    # ═══════════════════════════════════════════════════════════
 
     async def to_sqlite(
         self,
@@ -47,94 +64,148 @@ class AsyncPipelineAPI:
 
         Args:
             username: Target username
-            db_path: SQLite database path
+            db_path: SQLite db file path
             include_posts: Include posts table
             include_followers: Include followers table
             include_following: Include following table
-            max_followers: Max followers to fetch
-            max_posts: Max posts to fetch
-            incremental: Append mode (don't drop tables)
-            on_progress: Callback(stage, count)
+            max_followers: Max followers to store
+            max_posts: Max posts to store
+            incremental: If True, only add new data
+            on_progress: Callback(section_name, count)
 
         Returns:
-            dict: {file, tables, rows, duration_seconds}
+            dict: {tables_created, rows_inserted, file, duration_seconds}
         """
         start = time.time()
         os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
-        user = await self._users.get_by_username(username)
-        user_id = user.pk if hasattr(user, "pk") else user.get("pk", 0)
-        user_dict = self._user_to_dict(user)
-
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        self._create_tables(cursor)
+        rows_inserted = 0
 
-        # Profile
-        cursor.execute(
-            "INSERT OR REPLACE INTO profile (pk, username, full_name, followers, following, posts_count, biography, is_verified, is_private, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (user_dict.get("pk"), user_dict.get("username"), user_dict.get("full_name"),
-             user_dict.get("followers"), user_dict.get("following"), user_dict.get("posts_count"),
-             user_dict.get("biography"), user_dict.get("is_verified"), user_dict.get("is_private"),
-             datetime.now().isoformat()),
-        )
-        if on_progress:
-            on_progress("profile", 1)
+        try:
+            # Create tables
+            await self._create_tables(cursor)
+            conn.commit()
 
-        rows = {"profile": 1, "posts": 0, "followers": 0, "following": 0}
+            # Profile
+            user = self._users.get_by_username(username)
+            user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
+            profile_data = await self._user_to_dict(user)
+            profile_data["scraped_at"] = datetime.now().isoformat()
 
-        # Posts
-        if include_posts and user_id:
-            posts = await self._fetch_posts(user_id, max_posts)
-            for p in posts:
-                cursor.execute(
-                    "INSERT OR REPLACE INTO posts (pk, shortcode, media_type, like_count, comment_count, caption, taken_at) VALUES (?,?,?,?,?,?,?)",
-                    (p.get("pk"), p.get("code"), p.get("media_type", 1),
-                     p.get("like_count", 0), p.get("comment_count", 0),
-                     (p.get("caption", {}) or {}).get("text", ""),
-                     p.get("taken_at", 0)),
+            cursor.execute(
+                """INSERT OR REPLACE INTO profiles
+                (user_id, username, full_name, followers, following, posts_count,
+                 is_private, is_verified, biography, external_url, scraped_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    profile_data.get("user_id"), profile_data.get("username"),
+                    profile_data.get("full_name"), profile_data.get("followers"),
+                    profile_data.get("following"), profile_data.get("posts_count"),
+                    profile_data.get("is_private"), profile_data.get("is_verified"),
+                    profile_data.get("biography"), profile_data.get("external_url"),
+                    profile_data.get("scraped_at"),
                 )
-                rows["posts"] += 1
+            )
+            rows_inserted += 1
             if on_progress:
-                on_progress("posts", rows["posts"])
+                on_progress("profile", 1)
 
-        # Followers
-        if include_followers and user_id:
-            followers = await self._fetch_list(user_id, "followers", max_followers)
-            for f in followers:
-                fd = self._user_to_dict(f)
-                cursor.execute(
-                    "INSERT OR REPLACE INTO followers (pk, username, full_name, is_private, is_verified) VALUES (?,?,?,?,?)",
-                    (fd.get("pk"), fd.get("username"), fd.get("full_name"),
-                     fd.get("is_private"), fd.get("is_verified")),
-                )
-                rows["followers"] += 1
-            if on_progress:
-                on_progress("followers", rows["followers"])
+            # Posts
+            if include_posts and user_id:
+                posts = await self._fetch_posts(user_id, max_posts)
+                for post in posts:
+                    media_id = post.get("pk") or post.get("id")
+                    if incremental:
+                        cursor.execute("SELECT 1 FROM posts WHERE media_id=?", (str(media_id),))
+                        if cursor.fetchone():
+                            continue
 
-        # Following
-        if include_following and user_id:
-            following = await self._fetch_list(user_id, "following", max_followers)
-            for f in following:
-                fd = self._user_to_dict(f)
-                cursor.execute(
-                    "INSERT OR REPLACE INTO following (pk, username, full_name, is_private, is_verified) VALUES (?,?,?,?,?)",
-                    (fd.get("pk"), fd.get("username"), fd.get("full_name"),
-                     fd.get("is_private"), fd.get("is_verified")),
-                )
-                rows["following"] += 1
-            if on_progress:
-                on_progress("following", rows["following"])
+                    caption = post.get("caption", {})
+                    caption_text = caption.get("text", "") if isinstance(caption, dict) else str(caption or "")
+                    taken_at = post.get("taken_at", 0)
 
-        conn.commit()
-        conn.close()
+                    cursor.execute(
+                        """INSERT OR REPLACE INTO posts
+                        (media_id, shortcode, user_id, media_type, likes, comments,
+                         caption, taken_at, scraped_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            str(media_id), post.get("code", ""), str(user_id),
+                            post.get("media_type", 1),
+                            post.get("like_count", 0), post.get("comment_count", 0),
+                            caption_text, taken_at, datetime.now().isoformat(),
+                        )
+                    )
+                    rows_inserted += 1
 
+                if on_progress:
+                    on_progress("posts", len(posts))
+
+            # Followers
+            if include_followers and user_id:
+                followers = await self._fetch_list(user_id, "followers", max_followers)
+                for f in followers:
+                    fid = f.get("pk")
+                    if incremental:
+                        cursor.execute("SELECT 1 FROM followers WHERE user_id=? AND follower_id=?",
+                                       (str(user_id), str(fid)))
+                        if cursor.fetchone():
+                            continue
+                    cursor.execute(
+                        """INSERT OR REPLACE INTO followers
+                        (user_id, follower_id, follower_username, follower_fullname,
+                         is_private, is_verified, scraped_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            str(user_id), str(fid), f.get("username", ""),
+                            f.get("full_name", ""), f.get("is_private", False),
+                            f.get("is_verified", False), datetime.now().isoformat(),
+                        )
+                    )
+                    rows_inserted += 1
+
+                if on_progress:
+                    on_progress("followers", len(followers))
+
+            # Following
+            if include_following and user_id:
+                following = await self._fetch_list(user_id, "following", max_followers)
+                for f in following:
+                    fid = f.get("pk")
+                    cursor.execute(
+                        """INSERT OR REPLACE INTO following
+                        (user_id, following_id, following_username, following_fullname,
+                         is_private, is_verified, scraped_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            str(user_id), str(fid), f.get("username", ""),
+                            f.get("full_name", ""), f.get("is_private", False),
+                            f.get("is_verified", False), datetime.now().isoformat(),
+                        )
+                    )
+                    rows_inserted += 1
+
+                if on_progress:
+                    on_progress("following", len(following))
+
+            conn.commit()
+
+        finally:
+            conn.close()
+
+        duration = time.time() - start
+        logger.info(f"🗄️ SQLite @{username}: {rows_inserted} rows → {db_path} ({duration:.1f}s)")
         return {
+            "rows_inserted": rows_inserted,
             "file": os.path.abspath(db_path),
-            "tables": [k for k, v in rows.items() if v > 0],
-            "rows": rows,
-            "duration_seconds": round(time.time() - start, 1),
+            "duration_seconds": round(duration, 1),
         }
+
+    # ═══════════════════════════════════════════════════════════
+    # JSONL
+    # ═══════════════════════════════════════════════════════════
 
     async def to_jsonl(
         self,
@@ -149,6 +220,8 @@ class AsyncPipelineAPI:
         """
         Export to JSONL (one JSON object per line).
 
+        Each line has {"type": "profile"|"post"|"follower", ...data}.
+
         Args:
             username: Target username
             output_path: JSONL file path
@@ -156,127 +229,211 @@ class AsyncPipelineAPI:
             include_followers: Include followers
             max_followers: Max followers
             max_posts: Max posts
-            on_progress: Callback(stage, count)
 
         Returns:
-            dict: {file, lines, duration_seconds}
+            dict: {lines_written, file, duration_seconds}
         """
         start = time.time()
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-        user = await self._users.get_by_username(username)
-        user_id = user.pk if hasattr(user, "pk") else user.get("pk", 0)
-        user_dict = self._user_to_dict(user)
+        lines_written = 0
 
-        lines = 0
+        user = self._users.get_by_username(username)
+        user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
+
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"type": "profile", **user_dict}, default=str) + "\n")
-            lines += 1
+            # Profile
+            profile = await self._user_to_dict(user)
+            profile["_type"] = "profile"
+            profile["_scraped_at"] = datetime.now().isoformat()
+            f.write(json.dumps(profile, ensure_ascii=False, default=str) + "\n")
+            lines_written += 1
+            if on_progress:
+                on_progress("profile", 1)
 
+            # Posts
             if include_posts and user_id:
                 posts = await self._fetch_posts(user_id, max_posts)
-                for p in posts:
-                    f.write(json.dumps({"type": "post", **p}, default=str) + "\n")
-                    lines += 1
+                for post in posts:
+                    caption = post.get("caption", {})
+                    caption_text = caption.get("text", "") if isinstance(caption, dict) else str(caption or "")
+                    record = {
+                        "_type": "post",
+                        "media_id": post.get("pk"),
+                        "shortcode": post.get("code", ""),
+                        "media_type": post.get("media_type", 1),
+                        "likes": post.get("like_count", 0),
+                        "comments": post.get("comment_count", 0),
+                        "caption": caption_text,
+                        "taken_at": post.get("taken_at"),
+                        "_scraped_at": datetime.now().isoformat(),
+                    }
+                    f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                    lines_written += 1
+
                 if on_progress:
                     on_progress("posts", len(posts))
 
+            # Followers
             if include_followers and user_id:
                 followers = await self._fetch_list(user_id, "followers", max_followers)
                 for fol in followers:
-                    fd = self._user_to_dict(fol)
-                    f.write(json.dumps({"type": "follower", **fd}, default=str) + "\n")
-                    lines += 1
+                    record = {
+                        "_type": "follower",
+                        "user_id": fol.get("pk"),
+                        "username": fol.get("username", ""),
+                        "full_name": fol.get("full_name", ""),
+                        "is_private": fol.get("is_private", False),
+                        "is_verified": fol.get("is_verified", False),
+                        "_scraped_at": datetime.now().isoformat(),
+                    }
+                    f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                    lines_written += 1
+
                 if on_progress:
                     on_progress("followers", len(followers))
 
+        duration = time.time() - start
+        logger.info(f"📄 JSONL @{username}: {lines_written} lines → {output_path} ({duration:.1f}s)")
         return {
+            "lines_written": lines_written,
             "file": os.path.abspath(output_path),
-            "lines": lines,
-            "duration_seconds": round(time.time() - start, 1),
+            "duration_seconds": round(duration, 1),
         }
 
+    # ═══════════════════════════════════════════════════════════
+    # INTERNAL
+    # ═══════════════════════════════════════════════════════════
+
     @staticmethod
-    def _create_tables(cursor):
+    async def _create_tables(cursor):
         """Create SQLite tables."""
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS profile (
-                pk INTEGER PRIMARY KEY, username TEXT, full_name TEXT,
-                followers INTEGER, following INTEGER, posts_count INTEGER,
-                biography TEXT, is_verified INTEGER, is_private INTEGER, updated_at TEXT
+            CREATE TABLE IF NOT EXISTS profiles (
+                user_id TEXT PRIMARY KEY,
+                username TEXT,
+                full_name TEXT,
+                followers INTEGER,
+                following INTEGER,
+                posts_count INTEGER,
+                is_private BOOLEAN,
+                is_verified BOOLEAN,
+                biography TEXT,
+                external_url TEXT,
+                scraped_at TEXT
             )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS posts (
-                pk INTEGER PRIMARY KEY, shortcode TEXT, media_type INTEGER,
-                like_count INTEGER, comment_count INTEGER, caption TEXT, taken_at INTEGER
+                media_id TEXT PRIMARY KEY,
+                shortcode TEXT,
+                user_id TEXT,
+                media_type INTEGER,
+                likes INTEGER,
+                comments INTEGER,
+                caption TEXT,
+                taken_at INTEGER,
+                scraped_at TEXT
             )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS followers (
-                pk INTEGER PRIMARY KEY, username TEXT, full_name TEXT,
-                is_private INTEGER, is_verified INTEGER
+                user_id TEXT,
+                follower_id TEXT,
+                follower_username TEXT,
+                follower_fullname TEXT,
+                is_private BOOLEAN,
+                is_verified BOOLEAN,
+                scraped_at TEXT,
+                PRIMARY KEY (user_id, follower_id)
             )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS following (
-                pk INTEGER PRIMARY KEY, username TEXT, full_name TEXT,
-                is_private INTEGER, is_verified INTEGER
+                user_id TEXT,
+                following_id TEXT,
+                following_username TEXT,
+                following_fullname TEXT,
+                is_private BOOLEAN,
+                is_verified BOOLEAN,
+                scraped_at TEXT,
+                PRIMARY KEY (user_id, following_id)
             )
         """)
 
     @staticmethod
-    def _user_to_dict(user) -> Dict:
+    async def _user_to_dict(user) -> Dict:
         """Convert user object to dict."""
-        if hasattr(user, "pk"):
+        if hasattr(user, "__dict__"):
             return {
-                "pk": getattr(user, "pk", 0),
+                "user_id": getattr(user, "pk", ""),
                 "username": getattr(user, "username", ""),
                 "full_name": getattr(user, "full_name", ""),
-                "followers": getattr(user, "followers", 0),
-                "following": getattr(user, "following", 0),
-                "posts_count": getattr(user, "posts_count", 0),
-                "biography": getattr(user, "biography", ""),
-                "is_verified": getattr(user, "is_verified", False),
+                "followers": getattr(user, "followers", 0) or getattr(user, "follower_count", 0),
+                "following": getattr(user, "following", 0) or getattr(user, "following_count", 0),
+                "posts_count": getattr(user, "media_count", 0),
                 "is_private": getattr(user, "is_private", False),
+                "is_verified": getattr(user, "is_verified", False),
+                "biography": getattr(user, "biography", ""),
+                "external_url": getattr(user, "external_url", ""),
             }
         elif isinstance(user, dict):
             return {
-                "pk": user.get("pk", 0),
+                "user_id": user.get("pk", ""),
                 "username": user.get("username", ""),
                 "full_name": user.get("full_name", ""),
                 "followers": user.get("follower_count", 0) or user.get("followers", 0),
                 "following": user.get("following_count", 0) or user.get("following", 0),
                 "posts_count": user.get("media_count", 0),
-                "biography": user.get("biography", ""),
-                "is_verified": user.get("is_verified", False),
                 "is_private": user.get("is_private", False),
+                "is_verified": user.get("is_verified", False),
+                "biography": user.get("biography", ""),
+                "external_url": user.get("external_url", ""),
             }
-        return {"username": str(user)}
+        return {}
 
     async def _fetch_posts(self, user_id, count: int) -> List[Dict]:
         """Fetch user posts."""
-        try:
-            data = await self._client.get(
-                f"/feed/user/{user_id}/", params={"count": str(count)}, rate_category="get_feed",
-            )
-            return data.get("items", []) if data else []
-        except Exception as e:
-            logger.warning(f"Fetch posts error: {e}")
-            return []
+        posts: list = []
+        cursor = None
+        while len(posts) < count:
+            try:
+                params = {"count": "33"}
+                if cursor:
+                    params["max_id"] = cursor
+                result = self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params=params)
+            except Exception:
+                break
+            if not result or not isinstance(result, dict):
+                break
+            items = result.get("items", [])
+            if not items:
+                break
+            posts.extend(items)
+            if not result.get("more_available", False):
+                break
+            cursor = result.get("next_max_id")
+            if not cursor:
+                break
+        return posts[:count]
 
-    async def _fetch_list(self, user_id, list_type: str, max_count: int) -> List:
+    async def _fetch_list(self, user_id, list_type: str, max_count: int) -> List[Dict]:
         """Fetch followers or following list."""
         all_users: list = []
         cursor = None
         while len(all_users) < max_count:
             try:
-                fn = self._friendships.get_followers if list_type == "followers" else self._friendships.get_following
-                result = await fn(user_id, count=50, after=cursor)
-                all_users.extend(result.get("users", []))
-                cursor = result.get("next_max_id")
-                if not cursor:
-                    break
+                if list_type == "followers":
+                    result = self._friendships.get_followers(user_id, count=50, after=cursor)
+                else:
+                    result = self._friendships.get_following(user_id, count=50, after=cursor)
             except Exception:
+                break
+            users = result.get("users", [])
+            if not users:
+                break
+            all_users.extend(users)
+            cursor = result.get("next_max_id") or result.get("next_cursor")
+            if not cursor:
                 break
         return all_users[:max_count]

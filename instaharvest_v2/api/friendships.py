@@ -476,5 +476,93 @@ class FriendshipsAPI:
 
         return all_users[:max_count]
 
+    # ══════════════════════════════════════════════════════════════
+    # Follower / Following Analysis
+    # ══════════════════════════════════════════════════════════════
+
+    def not_following_back(
+        self,
+        user_id: int | str,
+        max_count: int = 1000,
+    ) -> List[UserShort]:
+        """
+        Users you follow who don't follow you back.
+
+        Args:
+            user_id: Your user PK
+            max_count: Max users to fetch per list
+
+        Returns:
+            List of UserShort models (not following back)
+        """
+        followers = self.get_all_followers(user_id, max_count=max_count)
+        following = self.get_all_following(user_id, max_count=max_count)
+
+        follower_pks = {u.pk for u in followers}
+        return [u for u in following if u.pk not in follower_pks]
+
+    def fans(
+        self,
+        user_id: int | str,
+        max_count: int = 1000,
+    ) -> List[UserShort]:
+        """
+        Users who follow you but you don't follow back (your fans).
+
+        Args:
+            user_id: Your user PK
+            max_count: Max users to fetch per list
+
+        Returns:
+            List of UserShort models (fans)
+        """
+        followers = self.get_all_followers(user_id, max_count=max_count)
+        following = self.get_all_following(user_id, max_count=max_count)
+
+        following_pks = {u.pk for u in following}
+        return [u for u in followers if u.pk not in following_pks]
+
+    def analyze_relationship(
+        self,
+        user_id: int | str,
+        max_count: int = 1000,
+    ) -> Dict[str, Any]:
+        """
+        Full follower/following relationship analysis.
+
+        Args:
+            user_id: User PK
+            max_count: Max users to fetch
+
+        Returns:
+            dict: {
+                followers_count, following_count,
+                mutual_count, not_following_back_count, fans_count,
+                mutual: [UserShort],
+                not_following_back: [UserShort],
+                fans: [UserShort]
+            }
+        """
+        followers = self.get_all_followers(user_id, max_count=max_count)
+        following = self.get_all_following(user_id, max_count=max_count)
+
+        follower_pks = {u.pk for u in followers}
+        following_pks = {u.pk for u in following}
+
+        mutual = [u for u in followers if u.pk in following_pks]
+        nfb = [u for u in following if u.pk not in follower_pks]
+        fan_list = [u for u in followers if u.pk not in following_pks]
+
+        return {
+            "followers_count": len(followers),
+            "following_count": len(following),
+            "mutual_count": len(mutual),
+            "not_following_back_count": len(nfb),
+            "fans_count": len(fan_list),
+            "mutual": mutual,
+            "not_following_back": nfb,
+            "fans": fan_list,
+        }
+
     # Alias for convenience
     show_friendship = show

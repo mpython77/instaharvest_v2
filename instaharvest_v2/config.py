@@ -47,11 +47,100 @@ ACCEPT_LANGUAGES = [
 ]
 
 # ============================================================
-# Sec-Ch-Ua variants
+# Sec-Ch-Ua variants (legacy — used by anti_detect for anonymous)
 # ============================================================
 SEC_CH_UA_VARIANTS = [
     '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
     '"Chromium";v="136", "Not A Brand";v="99", "Google Chrome";v="136"',
+]
+
+# ============================================================
+# Session-locked UA Profiles
+# ============================================================
+# Each authenticated session gets ONE profile at init — never changes.
+# All profiles use chrome142 impersonation for TLS consistency.
+# Instagram sees: stable browser identity = real user.
+SESSION_UA_PROFILES = [
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.110", "Chromium";v="142.0.7632.110"',
+        "sec_ch_ua_platform": '"Windows"',
+        "sec_ch_ua_platform_version": '"19.0.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.110", "Chromium";v="142.0.7632.110"',
+        "sec_ch_ua_platform": '"macOS"',
+        "sec_ch_ua_platform_version": '"15.3.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.110", "Chromium";v="142.0.7632.110"',
+        "sec_ch_ua_platform": '"Linux"',
+        "sec_ch_ua_platform_version": '"6.8.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7632.92 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.92", "Chromium";v="142.0.7632.92"',
+        "sec_ch_ua_platform": '"Windows"',
+        "sec_ch_ua_platform_version": '"15.0.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7632.92 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.92", "Chromium";v="142.0.7632.92"',
+        "sec_ch_ua_platform": '"macOS"',
+        "sec_ch_ua_platform_version": '"14.7.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7632.105 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.105", "Chromium";v="142.0.7632.105"',
+        "sec_ch_ua_platform": '"Windows"',
+        "sec_ch_ua_platform_version": '"10.0.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7632.105 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.105", "Chromium";v="142.0.7632.105"',
+        "sec_ch_ua_platform": '"Linux"',
+        "sec_ch_ua_platform_version": '"6.5.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7632.105 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.105", "Chromium";v="142.0.7632.105"',
+        "sec_ch_ua_platform": '"macOS"',
+        "sec_ch_ua_platform_version": '"15.2.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7632.118 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.118", "Chromium";v="142.0.7632.118"',
+        "sec_ch_ua_platform": '"Windows"',
+        "sec_ch_ua_platform_version": '"19.0.0"',
+        "impersonate": "chrome142",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7632.68 Safari/537.36",
+        "sec_ch_ua": '"Not A Brand";v="99", "Google Chrome";v="142", "Chromium";v="142"',
+        "sec_ch_ua_full_version_list": '"Not A Brand";v="99.0.0.0", "Google Chrome";v="142.0.7632.68", "Chromium";v="142.0.7632.68"',
+        "sec_ch_ua_platform": '"Windows"',
+        "sec_ch_ua_platform_version": '"11.0.0"',
+        "impersonate": "chrome142",
+    },
 ]
 
 # ============================================================

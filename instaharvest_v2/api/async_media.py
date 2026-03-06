@@ -40,6 +40,7 @@ Comments response structure:
 import re
 from typing import Any, Dict, List, Optional
 
+import asyncio
 from ..async_client import AsyncHttpClient
 from ..models.media import Media as MediaModel
 from ..models.comment import Comment as CommentModel
@@ -101,11 +102,23 @@ class AsyncMediaAPI:
         Full media info via /api/v1/media/{id}/info/ (REST v1 endpoint).
         Returns ALL available data in a structured dict.
 
+        This is the most complete media info endpoint — returns
+        engagement stats, image/video URLs, carousel items,
+        music metadata, tagged users, location, and more.
+
         Args:
-            media_id: Media PK (numeric)
+            media_id: Media PK (numeric, e.g. 3788237658380900437)
 
         Returns:
-            dict: Complete media info with ALL fields
+            dict: Complete media info with ALL fields:
+                - pk, code, media_type, media_type_name
+                - like_count, comment_count, play_count, view_count
+                - caption, taken_at, user (owner)
+                - images (all resolutions), videos (all qualities)
+                - carousel (if carousel), tagged_users
+                - location, music, coauthors
+                - is_photo, is_video, is_carousel, is_reel
+                - has_liked, has_saved, comments_disabled
         """
         from .graphql import GraphQLAPI
 
@@ -124,6 +137,7 @@ class AsyncMediaAPI:
     async def get_info_v2_raw(self, media_id: int | str) -> Dict[str, Any]:
         """
         Raw media info via /api/v1/media/{id}/info/.
+        Returns the raw API response without parsing.
 
         Args:
             media_id: Media PK
@@ -144,20 +158,55 @@ class AsyncMediaAPI:
         """
         Get media info from an Instagram URL.
 
+        Supports:
+            - https://www.instagram.com/p/SHORTCODE/
+            - https://www.instagram.com/reel/SHORTCODE/
+            - https://www.instagram.com/tv/SHORTCODE/
+            - https://instagram.com/p/SHORTCODE/
+
         Args:
             url: Instagram post/reel/tv URL
 
         Returns:
             dict: Full media info (same as get_info_v2)
         """
-        from .media import MediaAPI
-
-        shortcode = MediaAPI._extract_shortcode(url)
+        shortcode = await self._extract_shortcode(url)
         if not shortcode:
             raise ValueError(f"Invalid Instagram URL: {url}")
 
-        media_id = MediaAPI._shortcode_to_media_id(shortcode)
+        media_id = await self._shortcode_to_media_id(shortcode)
         return await self.get_info_v2(media_id)
+
+    @staticmethod
+    async def _extract_shortcode(url: str) -> Optional[str]:
+        """Extract shortcode from Instagram URL."""
+        match = re.search(r'instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
+        return match.group(1) if match else None
+
+    @staticmethod
+    async def _shortcode_to_media_id(shortcode: str) -> int:
+        """
+        Convert Instagram shortcode to media ID (PK).
+        Uses base64-like decoding algorithm.
+        """
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        media_id = 0
+        for char in shortcode:
+            media_id = media_id * 64 + alphabet.index(char)
+        return media_id
+
+    @staticmethod
+    async def _media_id_to_shortcode(media_id: int) -> str:
+        """
+        Convert media ID (PK) to Instagram shortcode.
+        """
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        shortcode = ""
+        while media_id > 0:
+            shortcode = alphabet[media_id % 64] + shortcode
+            media_id //= 64
+        return shortcode
+
 
     # ─── Comments ───────────────────────────────────────────
 
@@ -245,14 +294,14 @@ class AsyncMediaAPI:
         media_id: int | str,
         max_pages: int = 10,
         parsed: bool = False,
-    ) -> List:
+    ) -> List[Dict]:
         """
         Get all comments (with pagination).
 
         Args:
             media_id: Media PK
             max_pages: Maximum number of pages
-            parsed: True = Comment models, False = raw
+            parsed: True = structured, False = raw
 
         Returns:
             List of all comments
@@ -335,7 +384,7 @@ class AsyncMediaAPI:
             media_id: Media PK
         """
         return await self._client.post(
-            f"/media/{media_id}/like/",
+            f"/web/likes/{media_id}/like/",
             rate_category="post_like",
         )
 
@@ -347,7 +396,7 @@ class AsyncMediaAPI:
             media_id: Media PK
         """
         return await self._client.post(
-            f"/media/{media_id}/unlike/",
+            f"/web/likes/{media_id}/unlike/",
             rate_category="post_like",
         )
 
@@ -355,13 +404,29 @@ class AsyncMediaAPI:
         """
         Post a comment.
 
+        Uses /web/comments/{media_id}/add/ endpoint.
+        HttpClient automatically adds all required headers:
+        - x-ig-www-claim (HMAC)
+        - x-instagram-ajax (build hash)
+        - sec-fetch-* (browser security)
+        - cookie string (full session)
+
         Args:
             media_id: Media PK
             text: Comment text
+
+        Returns:
+            dict: {id, from, text, created_time, status}
         """
+        session = self._client.get_session()
+        jazoest = session.jazoest if session else ""
+
         return await self._client.post(
-            f"/media/{media_id}/comment/",
-            data={"comment_text": text},
+            f"/web/comments/{media_id}/add/",
+            data={
+                "comment_text": text,
+                "jazoest": jazoest,
+            },
             rate_category="post_comment",
         )
 
@@ -374,16 +439,22 @@ class AsyncMediaAPI:
         """
         Reply to a comment.
 
+        Uses /web/comments/{media_id}/add/ endpoint (same as comment).
+
         Args:
             media_id: Media PK
             comment_id: PK of comment being replied to
             text: Reply text
         """
+        session = self._client.get_session()
+        jazoest = session.jazoest if session else ""
+
         return await self._client.post(
-            f"/media/{media_id}/comment/",
+            f"/web/comments/{media_id}/add/",
             data={
                 "comment_text": text,
                 "replied_to_comment_id": str(comment_id),
+                "jazoest": jazoest,
             },
             rate_category="post_comment",
         )
@@ -560,7 +631,7 @@ class AsyncMediaAPI:
 
     async def _get_jazoest(self) -> str:
         """Get jazoest token from current session."""
-        return await self._client.get_jazoest()
+        return self._client.get_jazoest()
 
     async def web_comment(self, media_id: int | str, text: str) -> Dict[str, Any]:
         """
@@ -585,7 +656,7 @@ class AsyncMediaAPI:
             f"/web/comments/{media_id}/add/",
             data={
                 "comment_text": text,
-                "jazoest": self._get_jazoest(),
+                "jazoest": await self._get_jazoest(),
             },
             rate_category="post_comment",
         )
@@ -601,7 +672,7 @@ class AsyncMediaAPI:
         """
         return await self._client.post(
             f"/web/likes/{media_id}/like/",
-            data={"jazoest": self._get_jazoest()},
+            data={"jazoest": await self._get_jazoest()},
             rate_category="post_like",
         )
 
@@ -614,7 +685,7 @@ class AsyncMediaAPI:
         """
         return await self._client.post(
             f"/web/likes/{media_id}/unlike/",
-            data={"jazoest": self._get_jazoest()},
+            data={"jazoest": await self._get_jazoest()},
             rate_category="post_like",
         )
 
@@ -627,7 +698,7 @@ class AsyncMediaAPI:
         """
         return await self._client.post(
             f"/web/save/{media_id}/save/",
-            data={"jazoest": self._get_jazoest()},
+            data={"jazoest": await self._get_jazoest()},
             rate_category="post_default",
         )
 
@@ -640,7 +711,7 @@ class AsyncMediaAPI:
         """
         return await self._client.post(
             f"/web/save/{media_id}/unsave/",
-            data={"jazoest": self._get_jazoest()},
+            data={"jazoest": await self._get_jazoest()},
             rate_category="post_default",
         )
 
@@ -658,7 +729,7 @@ class AsyncMediaAPI:
         """
         return await self._client.post(
             f"/web/comments/{media_id}/delete/{comment_id}/",
-            data={"jazoest": self._get_jazoest()},
+            data={"jazoest": await self._get_jazoest()},
             rate_category="post_comment",
         )
 

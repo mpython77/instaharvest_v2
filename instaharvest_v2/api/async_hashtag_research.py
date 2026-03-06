@@ -1,7 +1,22 @@
 """
-Async Hashtag Research Tool
-============================
-Async version of HashtagResearchAPI. Full feature parity.
+Hashtag Research Tool
+=====================
+Analyze hashtags: difficulty, competition, related hashtags,
+average engagement, and smart suggestions.
+
+Usage:
+    ig = Instagram.from_env(".env")
+
+    # Full hashtag analysis
+    result = ig.hashtag_research.analyze("python")
+    print(result["difficulty"])  # "medium"
+    print(result["related"])    # [...related hashtags...]
+
+    # Find related hashtags
+    related = ig.hashtag_research.related("python")
+
+    # Smart suggestions
+    suggestions = ig.hashtag_research.suggest("programming", count=20)
 """
 
 import logging
@@ -14,11 +29,12 @@ logger = logging.getLogger("instaharvest_v2.hashtag_research")
 
 class AsyncHashtagResearchAPI:
     """
-    Async hashtag research and analysis.
+    Hashtag research and analysis.
 
-    Composes: AsyncHashtagsAPI, async client direct requests.
+    Composes: HashtagsAPI, client direct requests.
     """
 
+    # Difficulty thresholds (posts count)
     DIFFICULTY_THRESHOLDS = [
         (5_000_000, "very_hard"),
         (1_000_000, "hard"),
@@ -30,6 +46,10 @@ class AsyncHashtagResearchAPI:
     def __init__(self, client, hashtags_api):
         self._client = client
         self._hashtags = hashtags_api
+
+    # ═══════════════════════════════════════════════════════════
+    # FULL ANALYSIS
+    # ═══════════════════════════════════════════════════════════
 
     async def analyze(
         self,
@@ -47,33 +67,58 @@ class AsyncHashtagResearchAPI:
             dict:
                 - name: hashtag name
                 - media_count: total posts
-                - difficulty: easy/medium/hard/very_hard
-                - competition_score: 0-1
-                - engagement: avg likes/comments from sample
+                - difficulty: very_easy/easy/medium/hard/very_hard
+                - competition_score: 0-1 float
+                - avg_likes: average likes per post
+                - avg_comments: average comments per post
+                - engagement_score: combined engagement metric
+                - top_posts_sample: top posts with engagement
                 - related: related hashtags found in posts
                 - suggested_size: ideal follower range for this hashtag
         """
         tag = tag.lstrip("#").strip().lower()
+
+        # Fetch hashtag info
         info = await self._get_hashtag_info(tag)
         media_count = info.get("media_count", 0)
-        difficulty = self._calculate_difficulty(media_count)
-        competition = self._competition_score(media_count)
 
+        # Difficulty
+        difficulty = await self._calculate_difficulty(media_count)
+        competition = await self._competition_score(media_count)
+
+        # Sample posts for engagement analysis
         posts = await self._sample_posts(tag, sample_posts)
-        engagement = self._analyze_engagement(posts)
-        related = self._extract_related(posts, tag)
+        engagement = await self._analyze_engagement(posts)
 
-        return {
+        # Find related hashtags
+        related = await self._extract_related(posts, tag)
+
+        result = {
             "name": tag,
             "media_count": media_count,
             "difficulty": difficulty,
             "competition_score": round(competition, 2),
-            "engagement": engagement,
+            "avg_likes": engagement["avg_likes"],
+            "avg_comments": engagement["avg_comments"],
+            "engagement_score": engagement["score"],
+            "top_posts_sample": engagement["top_posts"][:5],
             "related": related[:20],
-            "suggested_size": self._suggest_audience_size(media_count),
+            "suggested_size": await self._suggest_audience_size(media_count),
+            "posts_analyzed": len(posts),
         }
 
-    async def related(self, tag: str, count: int = 30) -> List[Dict]:
+        logger.info(
+            f"🔍 #{tag}: {media_count:,} posts | difficulty={difficulty} | "
+            f"avg_likes={engagement['avg_likes']:.0f} | "
+            f"related={len(related)} tags"
+        )
+        return result
+
+    # ═══════════════════════════════════════════════════════════
+    # RELATED HASHTAGS
+    # ═══════════════════════════════════════════════════════════
+
+    async def related(self, tag: str, count: int = 30) -> List[Dict[str, Any]]:
         """
         Find related hashtags that appear together.
 
@@ -82,20 +127,27 @@ class AsyncHashtagResearchAPI:
             count: Max related tags to return
 
         Returns:
-            List of {name, co_occurrence} dicts
+            List of {name, co_occurrence, media_count} dicts
         """
         tag = tag.lstrip("#").strip().lower()
         posts = await self._sample_posts(tag, 50)
-        return self._extract_related(posts, tag)[:count]
+        related = await self._extract_related(posts, tag)
+        return related[:count]
+
+    # ═══════════════════════════════════════════════════════════
+    # SUGGESTIONS
+    # ═══════════════════════════════════════════════════════════
 
     async def suggest(
         self,
         seed_tag: str,
         count: int = 20,
         mix: str = "balanced",
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """
         Smart hashtag suggestions based on a seed tag.
+
+        Creates a balanced mix of difficulty levels.
 
         Args:
             seed_tag: Starting hashtag
@@ -106,43 +158,54 @@ class AsyncHashtagResearchAPI:
             List of {name, media_count, difficulty, reason} dicts
         """
         seed_tag = seed_tag.lstrip("#").strip().lower()
-        related_tags = await self.related(seed_tag, count=count * 2)
-        suggestions = []
 
-        for tag_info in related_tags:
-            tag_name = tag_info.get("name", "")
-            if not tag_name:
-                continue
-            try:
-                info = await self._get_hashtag_info(tag_name)
-                mc = info.get("media_count", 0)
-                d = self._calculate_difficulty(mc)
-                suggestions.append({
-                    "name": tag_name,
-                    "media_count": mc,
-                    "difficulty": d,
-                    "reason": f"Related to #{seed_tag}",
-                })
-            except Exception:
-                continue
+        # Get related
+        posts = await self._sample_posts(seed_tag, 50)
+        raw_related = await self._extract_related(posts, seed_tag)
 
-        # Sort by mix preference
+        # Enrich with media counts
+        enriched = []
+        for r in raw_related[:40]:  # Limit API calls
+            tag_name = r.get("name", "")
+            info = await self._get_hashtag_info(tag_name)
+            mc = info.get("media_count", 0)
+            diff = await self._calculate_difficulty(mc)
+            enriched.append({
+                "name": tag_name,
+                "media_count": mc,
+                "difficulty": diff,
+                "co_occurrence": r.get("co_occurrence", 0),
+                "reason": f"Related to #{seed_tag}",
+            })
+
+        # Mix strategy
         if mix == "easy":
-            suggestions.sort(key=lambda x: x.get("media_count", 0))
+            enriched.sort(key=lambda x: x.get("media_count", 0))
         elif mix == "competitive":
-            suggestions.sort(key=lambda x: x.get("media_count", 0), reverse=True)
+            enriched.sort(key=lambda x: x.get("media_count", 0), reverse=True)
         else:
-            # balanced — mix of difficulties
-            easy = [s for s in suggestions if s["difficulty"] in ("very_easy", "easy")]
-            medium = [s for s in suggestions if s["difficulty"] == "medium"]
-            hard = [s for s in suggestions if s["difficulty"] in ("hard", "very_hard")]
-            suggestions = []
-            for group in [easy, medium, hard]:
-                suggestions.extend(group[:count // 3 + 1])
+            # Balanced — mix easy + medium + hard
+            easy = [t for t in enriched if t["difficulty"] in ("very_easy", "easy")]
+            medium = [t for t in enriched if t["difficulty"] == "medium"]
+            hard = [t for t in enriched if t["difficulty"] in ("hard", "very_hard")]
 
-        return suggestions[:count]
+            balanced: list = []
+            while len(balanced) < count and (easy or medium or hard):
+                if easy:
+                    balanced.append(easy.pop(0))
+                if medium and len(balanced) < count:
+                    balanced.append(medium.pop(0))
+                if hard and len(balanced) < count:
+                    balanced.append(hard.pop(0))
+            enriched = balanced
 
-    async def compare(self, tags: List[str]) -> List[Dict]:
+        return enriched[:count]
+
+    # ═══════════════════════════════════════════════════════════
+    # COMPARE HASHTAGS
+    # ═══════════════════════════════════════════════════════════
+
+    async def compare(self, tags: List[str]) -> List[Dict[str, Any]]:
         """
         Compare multiple hashtags side by side.
 
@@ -154,20 +217,21 @@ class AsyncHashtagResearchAPI:
         """
         results = []
         for tag in tags:
-            try:
-                result = await self.analyze(tag)
-                results.append(result)
-            except Exception as e:
-                results.append({"name": tag, "error": str(e)})
+            result = await self.analyze(tag, sample_posts=15)
+            results.append(result)
         return results
 
-    # ─── Internal helpers ──────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════
+    # INTERNAL
+    # ═══════════════════════════════════════════════════════════
 
     async def _get_hashtag_info(self, tag: str) -> Dict:
         """Get basic hashtag info."""
         try:
-            data = await self._hashtags.info(tag)
-            return data if isinstance(data, dict) else {}
+            result = self._client.request(
+                "GET", f"/api/v1/tags/{tag}/info/",
+            )
+            return result if isinstance(result, dict) else {}
         except Exception:
             return {"name": tag, "media_count": 0}
 
@@ -175,59 +239,97 @@ class AsyncHashtagResearchAPI:
         """Sample recent posts from a hashtag."""
         posts = []
         try:
-            result = await self._hashtags.get_recent_media(tag)
-            if isinstance(result, dict):
-                items = result.get("items", [])
-                posts.extend(items)
+            result = self._client.request(
+                "GET", f"/api/v1/tags/{tag}/sections/",
+                params={"tab": "recent", "count": str(min(count, 50))},
+            )
+            if result and isinstance(result, dict):
+                for sec in result.get("sections", []):
+                    for m in sec.get("layout_content", {}).get("medias", []):
+                        media = m.get("media", {})
+                        if media:
+                            posts.append(media)
+        except Exception as e:
+            logger.debug(f"Sample posts error for #{tag}: {e}")
 
-            if len(posts) < count:
-                result = await self._hashtags.get_sections(tag, tab="recent")
-                if isinstance(result, dict):
+        # Also try top posts
+        if len(posts) < count:
+            try:
+                result = self._client.request(
+                    "GET", f"/api/v1/tags/{tag}/sections/",
+                    params={"tab": "top"},
+                )
+                if result and isinstance(result, dict):
                     for sec in result.get("sections", []):
                         for m in sec.get("layout_content", {}).get("medias", []):
                             media = m.get("media", {})
                             if media:
                                 posts.append(media)
-        except Exception as e:
-            logger.debug(f"Sample posts error for #{tag}: {e}")
+            except Exception:
+                pass
 
         return posts[:count]
 
     @staticmethod
-    def _analyze_engagement(posts: List[Dict]) -> Dict[str, Any]:
+    async def _analyze_engagement(posts: List[Dict]) -> Dict[str, Any]:
         """Analyze engagement from post samples."""
         if not posts:
-            return {"avg_likes": 0, "avg_comments": 0, "sample_size": 0}
+            return {"avg_likes": 0, "avg_comments": 0, "score": 0, "top_posts": []}
 
+        scored = []
         total_likes = 0
         total_comments = 0
-        for p in posts:
-            total_likes += p.get("like_count", 0) or 0
-            total_comments += p.get("comment_count", 0) or 0
 
-        count = len(posts)
+        for post in posts:
+            likes = post.get("like_count", 0) or 0
+            comments = post.get("comment_count", 0) or 0
+            total_likes += likes
+            total_comments += comments
+
+            scored.append({
+                "shortcode": post.get("code", ""),
+                "likes": likes,
+                "comments": comments,
+                "engagement": likes + comments,
+            })
+
+        n = len(posts)
+        avg_likes = total_likes / n
+        avg_comments = total_comments / n
+
+        scored.sort(key=lambda p: p["engagement"], reverse=True)
+
         return {
-            "avg_likes": round(total_likes / count, 1),
-            "avg_comments": round(total_comments / count, 1),
-            "sample_size": count,
+            "avg_likes": round(avg_likes, 1),
+            "avg_comments": round(avg_comments, 1),
+            "score": round(avg_likes + avg_comments, 1),
+            "top_posts": scored[:5],
         }
 
     @staticmethod
-    def _extract_related(posts: List[Dict], exclude_tag: str) -> List[Dict]:
+    async def _extract_related(posts: List[Dict], exclude_tag: str) -> List[Dict[str, Any]]:
         """Extract related hashtags from post captions."""
         import re
-        counter: Counter = Counter()
-        for p in posts:
-            cap = p.get("caption")
-            text = cap.get("text", "") if isinstance(cap, dict) else (cap or "")
+        tag_counter: Counter = Counter()
+
+        for post in posts:
+            caption = post.get("caption", {})
+            if isinstance(caption, dict):
+                text = caption.get("text", "")
+            else:
+                text = str(caption or "")
+
             tags = re.findall(r"#(\w+)", text.lower())
             for t in tags:
-                if t != exclude_tag:
-                    counter[t] += 1
+                if t != exclude_tag and len(t) > 1:
+                    tag_counter[t] += 1
 
-        return [{"name": tag, "co_occurrence": cnt} for tag, cnt in counter.most_common(50)]
+        return [
+            {"name": tag, "co_occurrence": count}
+            for tag, count in tag_counter.most_common(50)
+        ]
 
-    def _calculate_difficulty(self, media_count: int) -> str:
+    async def _calculate_difficulty(self, media_count: int) -> str:
         """Calculate hashtag difficulty based on post count."""
         for threshold, label in self.DIFFICULTY_THRESHOLDS:
             if media_count >= threshold:
@@ -235,21 +337,22 @@ class AsyncHashtagResearchAPI:
         return "very_easy"
 
     @staticmethod
-    def _competition_score(media_count: int) -> float:
+    async def _competition_score(media_count: int) -> float:
         """0-1 competition score based on media count."""
         if media_count <= 0:
             return 0.0
-        return min(1.0, math.log10(media_count + 1) / 8)
+        return min(1.0, math.log10(max(media_count, 1)) / 8)
 
     @staticmethod
-    def _suggest_audience_size(media_count: int) -> Dict[str, int]:
+    async def _suggest_audience_size(media_count: int) -> str:
         """Suggest ideal account follower range for this hashtag."""
         if media_count > 5_000_000:
-            return {"min": 50_000, "max": 1_000_000}
+            return "500K+ followers"
         elif media_count > 1_000_000:
-            return {"min": 10_000, "max": 100_000}
+            return "100K-500K followers"
         elif media_count > 200_000:
-            return {"min": 1_000, "max": 50_000}
+            return "10K-100K followers"
         elif media_count > 50_000:
-            return {"min": 100, "max": 10_000}
-        return {"min": 0, "max": 5_000}
+            return "1K-10K followers"
+        else:
+            return "0-1K followers"

@@ -17,8 +17,83 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Callable
 
 from dotenv import load_dotenv
+from .config import SESSION_UA_PROFILES
 
 logger = logging.getLogger("instaharvest_v2")
+
+
+@dataclass(frozen=True)
+class SessionFingerprint:
+    """
+    Immutable browser fingerprint for a session.
+
+    Created ONCE at session init — never changes during session lifetime.
+    All fields are coherent: UA matches sec-ch-ua, platform matches TLS.
+    Instagram sees a stable, real browser identity.
+    """
+    user_agent: str
+    sec_ch_ua: str
+    sec_ch_ua_full_version_list: str
+    sec_ch_ua_platform: str
+    sec_ch_ua_platform_version: str
+    impersonate: str
+
+    @classmethod
+    def from_profile(cls, profile: dict) -> "SessionFingerprint":
+        """Create fingerprint from a SESSION_UA_PROFILES entry."""
+        return cls(
+            user_agent=profile["user_agent"],
+            sec_ch_ua=profile["sec_ch_ua"],
+            sec_ch_ua_full_version_list=profile["sec_ch_ua_full_version_list"],
+            sec_ch_ua_platform=profile["sec_ch_ua_platform"],
+            sec_ch_ua_platform_version=profile["sec_ch_ua_platform_version"],
+            impersonate=profile["impersonate"],
+        )
+
+    @classmethod
+    def from_user_agent(cls, user_agent: str) -> "SessionFingerprint":
+        """
+        Create fingerprint from a custom user_agent string.
+        Auto-detects platform from UA and generates matching sec-ch-ua.
+        """
+        # Detect platform from UA
+        if "Macintosh" in user_agent or "Mac OS" in user_agent:
+            platform = '"macOS"'
+            platform_ver = '"15.3.0"'
+        elif "Linux" in user_agent:
+            platform = '"Linux"'
+            platform_ver = '"6.8.0"'
+        else:
+            platform = '"Windows"'
+            platform_ver = '"19.0.0"'
+
+        # Extract Chrome version from UA
+        import re
+        ver_match = re.search(r'Chrome/(\d+)\.([\d.]+)', user_agent)
+        if ver_match:
+            major = ver_match.group(1)
+            full_ver = f"{major}.{ver_match.group(2)}"
+        else:
+            major = "142"
+            full_ver = "142.0.7632.110"
+
+        sec_ch_ua = f'"Not A Brand";v="99", "Google Chrome";v="{major}", "Chromium";v="{major}"'
+        sec_ch_ua_fvl = f'"Not A Brand";v="99.0.0.0", "Google Chrome";v="{full_ver}", "Chromium";v="{full_ver}"'
+
+        return cls(
+            user_agent=user_agent,
+            sec_ch_ua=sec_ch_ua,
+            sec_ch_ua_full_version_list=sec_ch_ua_fvl,
+            sec_ch_ua_platform=platform,
+            sec_ch_ua_platform_version=platform_ver,
+            impersonate="chrome142",
+        )
+
+    @classmethod
+    def pick_random(cls) -> "SessionFingerprint":
+        """Pick a random profile from the pool. Used when no user_agent provided."""
+        profile = random.choice(SESSION_UA_PROFILES)
+        return cls.from_profile(profile)
 
 
 @dataclass
@@ -39,6 +114,10 @@ class SessionInfo:
     ig_www_claim: str = ""       # for x-ig-www-claim header
     rur: str = ""                # rur cookie
     x_instagram_ajax: str = ""   # build/deploy hash header
+    fb_dtsg: str = ""            # Facebook DTSG CSRF token (for POST requests)
+
+    # Session-locked browser fingerprint (immutable after creation)
+    fingerprint: Optional[SessionFingerprint] = field(default=None, repr=False)
 
     # State
     is_active: bool = True
@@ -51,6 +130,32 @@ class SessionInfo:
     # Auto-save tracking
     _requests_since_save: int = field(default=0, repr=False)
     _cookie_updates: int = field(default=0, repr=False)
+
+    def _init_fingerprint(self) -> None:
+        """
+        Initialize session fingerprint.
+        Called once after creation. Sets immutable browser identity.
+
+        Priority:
+        1. Custom user_agent → build fingerprint from it
+        2. No user_agent → pick random from SESSION_UA_PROFILES pool
+        """
+        if self.fingerprint is not None:
+            return  # Already initialized
+
+        if self.user_agent:
+            # User provided explicit UA → build coherent fingerprint from it
+            self.fingerprint = SessionFingerprint.from_user_agent(self.user_agent)
+        else:
+            # No UA → pick random from pool and lock it
+            self.fingerprint = SessionFingerprint.pick_random()
+            self.user_agent = self.fingerprint.user_agent
+
+        logger.debug(
+            f"[Session] Fingerprint locked: "
+            f"UA={self.fingerprint.user_agent[:50]}... "
+            f"platform={self.fingerprint.sec_ch_ua_platform}"
+        )
 
     @property
     def jazoest(self) -> str:
@@ -121,6 +226,7 @@ class SessionInfo:
             "user_agent": self.user_agent,
             "ig_www_claim": self.ig_www_claim,
             "x_instagram_ajax": self.x_instagram_ajax,
+            "fb_dtsg": self.fb_dtsg,
             "username": self.username,
             "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "total_requests": self.total_requests,
@@ -221,7 +327,7 @@ class SessionManager:
         ig_www_claim: str = "",
         rur: str = "",
         x_instagram_ajax: str = "",
-    ) -> None:
+    ) -> "SessionInfo":
         """Add a new session (thread-safe)."""
         session = SessionInfo(
             session_id=session_id,
@@ -235,8 +341,11 @@ class SessionManager:
             rur=rur,
             x_instagram_ajax=x_instagram_ajax,
         )
+        # Lock fingerprint at creation — never changes
+        session._init_fingerprint()
         with self._lock:
             self._sessions.append(session)
+        return session
 
     def get_session(self) -> Optional[SessionInfo]:
         """
@@ -302,12 +411,12 @@ class SessionManager:
                                        if len(value) > 15 else f"{name}={value}")
 
                 # rur — handle separately (always updated)
+                # IMPORTANT: keep FULL rur value (contains HMAC signature)
+                # Truncating it breaks Instagram's server-side validation
                 rur_val = cookies.get("rur")
                 if rur_val:
-                    # rur value comes in "LDC\054..." format, get only prefix
-                    rur_clean = rur_val.split("\\")[0] if "\\" in rur_val else rur_val
-                    if rur_clean != session.rur:
-                        session.rur = rur_clean
+                    if rur_val != session.rur:
+                        session.rur = rur_val
                         updated.append("rur")
         except Exception:
             pass  # Never fail on cookie capture
@@ -475,9 +584,9 @@ class SessionManager:
                 session.csrf_token = new_csrf
                 updated.append("csrftoken")
             if new_rur:
-                rur_clean = new_rur.split("\\")[0] if "\\" in new_rur else new_rur
-                session.rur = rur_clean
-                updated.append("rur")
+                if new_rur != session.rur:
+                    session.rur = new_rur
+                    updated.append("rur")
             if new_mid and new_mid != session.mid:
                 session.mid = new_mid
                 updated.append("mid")
@@ -590,3 +699,169 @@ class SessionManager:
 
     def get_all_sessions(self) -> List[SessionInfo]:
         return list(self._sessions)
+
+    # ══════════════════════════════════════════════════════════════
+    # Cookie Import / Session Pooling
+    # ══════════════════════════════════════════════════════════════
+
+    def load_from_browser_cookies(
+        self,
+        source,
+        user_agent: str = "",
+    ) -> Optional[SessionInfo]:
+        """
+        Import session from browser-exported cookie JSON.
+
+        Accepts:
+            - str/Path: path to JSON file
+            - list[dict]: cookie list directly (from browser extension)
+
+        The JSON format is the standard browser cookie export:
+            [{"name": "sessionid", "value": "...", "domain": ".instagram.com"}, ...]
+
+        Args:
+            source: Path to JSON file or list of cookie dicts
+            user_agent: Optional UA string for the session
+
+        Returns:
+            SessionInfo if successful, None otherwise
+        """
+        try:
+            # Load cookies
+            if isinstance(source, (str, Path)):
+                path = Path(source)
+                if not path.exists():
+                    logger.error(f"Cookie file not found: {path}")
+                    return None
+                with open(path, "r", encoding="utf-8") as f:
+                    cookies = json.load(f)
+            elif isinstance(source, list):
+                cookies = source
+            else:
+                logger.error(f"Invalid source type: {type(source)}")
+                return None
+
+            # Filter instagram.com cookies
+            ig_cookies = {}
+            for c in cookies:
+                domain = c.get("domain", "")
+                if "instagram.com" not in domain:
+                    continue
+                name = c.get("name", "")
+                value = c.get("value", "")
+                if name and value:
+                    ig_cookies[name] = value
+
+            # Validate required cookies
+            session_id = ig_cookies.get("sessionid", "")
+            csrf_token = ig_cookies.get("csrftoken", "")
+            ds_user_id = ig_cookies.get("ds_user_id", "")
+
+            if not session_id:
+                logger.error("Missing 'sessionid' cookie")
+                return None
+            if not ds_user_id:
+                logger.error("Missing 'ds_user_id' cookie")
+                return None
+
+            # Handle rur — browser exports with escaped backslashes + quotes
+            rur = ig_cookies.get("rur", "")
+            if rur.startswith('"') and rur.endswith('"'):
+                rur = rur[1:-1]  # Strip surrounding quotes
+
+            # Add session
+            sess = self.add_session(
+                session_id=session_id,
+                csrf_token=csrf_token or "",
+                ds_user_id=ds_user_id,
+                mid=ig_cookies.get("mid", ""),
+                ig_did=ig_cookies.get("ig_did", ""),
+                datr=ig_cookies.get("datr", ""),
+                user_agent=user_agent,
+                rur=rur,
+            )
+
+            logger.info(
+                f"✅ Imported browser cookies for ds_user_id={ds_user_id} "
+                f"({len(ig_cookies)} cookies)"
+            )
+            return sess
+
+        except Exception as e:
+            logger.error(f"Failed to import browser cookies: {e}")
+            return None
+
+    def load_from_cookie_dir(
+        self,
+        dir_path: str,
+        user_agent: str = "",
+    ) -> int:
+        """
+        Load multiple sessions from a directory of cookie JSON files.
+
+        Each .json file should contain browser-exported cookies.
+        File naming convention: any .json file works.
+
+        Args:
+            dir_path: Path to directory containing cookie JSON files
+            user_agent: Optional UA for all sessions
+
+        Returns:
+            Number of sessions successfully loaded
+        """
+        path = Path(dir_path)
+        if not path.is_dir():
+            logger.error(f"Not a directory: {dir_path}")
+            return 0
+
+        loaded = 0
+        for json_file in sorted(path.glob("*.json")):
+            try:
+                sess = self.load_from_browser_cookies(json_file, user_agent)
+                if sess:
+                    loaded += 1
+                    logger.info(f"  📂 Loaded: {json_file.name} → {sess.ds_user_id}")
+            except Exception as e:
+                logger.warning(f"  ❌ Failed: {json_file.name} → {e}")
+
+        logger.info(f"📂 Cookie dir: loaded {loaded} sessions from {dir_path}")
+        return loaded
+
+    def get_pool_status(self) -> Dict:
+        """
+        Get session pool monitoring status.
+
+        Returns:
+            dict: {
+                total: int,
+                active: int,
+                invalid: int,
+                sessions: [{
+                    ds_user_id, is_active, is_valid, errors,
+                    total_requests, last_used_ago, username
+                }]
+            }
+        """
+        now = time.time()
+        with self._lock:
+            sessions_info = []
+            for s in self._sessions:
+                last_ago = round(now - s.last_used, 1) if s.last_used else None
+                sessions_info.append({
+                    "ds_user_id": s.ds_user_id,
+                    "username": s.username,
+                    "is_active": s.is_active,
+                    "is_valid": s.is_valid,
+                    "errors": s.errors,
+                    "total_requests": s.total_requests,
+                    "last_used_ago": f"{last_ago}s" if last_ago else "never",
+                    "has_claim": bool(s.ig_www_claim),
+                    "has_ajax": bool(s.x_instagram_ajax),
+                })
+
+            return {
+                "total": len(self._sessions),
+                "active": sum(1 for s in self._sessions if s.is_active and s.is_valid),
+                "invalid": sum(1 for s in self._sessions if not s.is_valid),
+                "sessions": sessions_info,
+            }

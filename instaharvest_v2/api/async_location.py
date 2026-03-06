@@ -6,6 +6,7 @@ Instagram location-based search and feed.
 
 from typing import Any, Dict, List, Optional
 
+import asyncio
 from ..async_client import AsyncHttpClient
 
 

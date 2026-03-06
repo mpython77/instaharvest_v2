@@ -1,26 +1,32 @@
 """
-Feed API (Async)
-================
+Feed API
+========
 User feeds: posts, liked, saved, timeline, tag, reels.
 Pagination support. GraphQL v2 + REST fallback.
 """
 
-import asyncio
+import json
+import logging
+import time
 from typing import Any, Dict, List, Optional
 
+import asyncio
 from ..async_client import AsyncHttpClient
 from ..models.media import Media as MediaModel
 
-import logging
 logger = logging.getLogger("instaharvest_v2")
 
 
 class AsyncFeedAPI:
-    """Instagram feed API (async) — GraphQL v2 + REST fallback."""
+    """Instagram feed API — GraphQL v2 with REST fallback."""
 
     def __init__(self, client: AsyncHttpClient, graphql=None):
         self._client = client
-        self._graphql = graphql  # AsyncGraphQLAPI instance (injected)
+        self._graphql = graphql  # GraphQLAPI instance (injected)
+
+    # ═══════════════════════════════════════════════════════════
+    # USER FEED (REST — always works with session)
+    # ═══════════════════════════════════════════════════════════
 
     async def get_user_feed(
         self,
@@ -55,22 +61,26 @@ class AsyncFeedAPI:
         user_id: int | str,
         max_posts: int = 100,
         count_per_page: int = 12,
+        delay: float = 1.5,
     ) -> List[MediaModel]:
         """
-        Get all posts (with pagination).
+        Get all posts (with pagination + anti-rate-limit delay).
 
         Args:
             user_id: User PK
             max_posts: Maximum number of posts
             count_per_page: Posts per page
+            delay: Delay between pagination requests (seconds)
 
         Returns:
             List of Media models
         """
         all_posts = []
         max_id = None
+        page = 0
 
         while len(all_posts) < max_posts:
+            page += 1
             data = await self.get_user_feed(user_id, count=count_per_page, max_id=max_id)
 
             items = data.get("items", [])
@@ -83,71 +93,257 @@ class AsyncFeedAPI:
             if not max_id:
                 break
 
+            if page > 1:
+                time.sleep(delay)
+
         return all_posts[:max_posts]
 
-    async def get_liked(self, max_id: Optional[str] = None) -> Dict[str, Any]:
+    # ═══════════════════════════════════════════════════════════
+    # TIMELINE (GraphQL v2 → REST fallback)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_timeline(
+        self,
+        count: int = 12,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Home timeline feed.
+
+        Strategy:
+            1. GraphQL doc_id POST (web-cookie compatible)
+            2. REST /feed/timeline/ (fallback, needs mobile session)
+
+        Args:
+            count: Number of posts
+            cursor: Pagination cursor (end_cursor or max_id)
+
+        Returns:
+            dict: {posts, has_next, end_cursor, count, raw_edge_types}
+        """
+        # Strategy 1: GraphQL v2 (preferred)
+        if self._graphql:
+            try:
+                return self._graphql.get_timeline_v2(count=count, after=cursor)
+            except Exception as e:
+                logger.debug(f"[Feed] GraphQL timeline failed: {e}, trying REST...")
+
+        # Strategy 2: REST fallback
+        try:
+            params = {}
+            if cursor:
+                params["max_id"] = cursor
+            data = await self._client.get(
+                "/feed/timeline/",
+                params=params if params else None,
+                rate_category="get_feed",
+            )
+            # Normalize REST response to v2 format
+            items = data.get("items", [])
+            return {
+                "posts": items,
+                "has_next": data.get("more_available", False),
+                "end_cursor": data.get("next_max_id"),
+                "count": len(items),
+            }
+        except Exception as e:
+            logger.debug(f"[Feed] REST timeline also failed: {e}")
+            return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}
+
+    async def get_all_timeline(
+        self,
+        max_posts: int = 50,
+        delay: float = 2.0,
+    ) -> List[Dict]:
+        """
+        Get multiple pages of timeline (auto-pagination).
+
+        Args:
+            max_posts: Maximum posts to collect
+            delay: Delay between pages (seconds)
+
+        Returns:
+            List of parsed post dicts
+        """
+        all_posts = []
+        cursor = None
+        page = 0
+
+        while len(all_posts) < max_posts:
+            page += 1
+            result = await self.get_timeline(count=12, cursor=cursor)
+            all_posts.extend(result.get("posts", []))
+
+            logger.debug(
+                f"[Feed] Timeline page {page}: {result.get('count', 0)} posts "
+                f"(total: {len(all_posts)})"
+            )
+
+            if not result.get("has_next") or not result.get("end_cursor"):
+                break
+
+            cursor = result["end_cursor"]
+            time.sleep(delay)
+
+        return all_posts[:max_posts]
+
+    # ═══════════════════════════════════════════════════════════
+    # LIKED POSTS (GraphQL v2 → legacy hash fallback)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_liked(
+        self,
+        count: int = 20,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         My liked posts.
 
+        Strategy:
+            1. GraphQL doc_id POST (modern, recommended)
+            2. Legacy query_hash GET (deprecated, may not work)
+
         Args:
-            max_id: Pagination cursor
+            count: Posts per page
+            cursor: Pagination cursor
 
         Returns:
-            Liked posts
+            dict: {posts, has_next, end_cursor, count}
         """
-        params = {}
-        if max_id:
-            params["max_id"] = max_id
+        # Strategy 1: GraphQL v2
+        if self._graphql:
+            try:
+                return self._graphql.get_liked_v2(count=count, after=cursor)
+            except Exception as e:
+                logger.debug(f"[Feed] GraphQL liked failed: {e}, trying legacy...")
 
-        return await self._client.get(
-            "/feed/liked/",
-            params=params if params else None,
-            rate_category="get_feed",
-        )
+        # Strategy 2: Legacy query_hash
+        try:
+            sess = self._client.get_session()
+            variables = {"id": str(sess.ds_user_id) if sess else "", "first": count}
+            if cursor:
+                variables["after"] = cursor
+            data = await self._client.get(
+                "/graphql/query/",
+                params={
+                    "query_hash": "d5d763b1e2acf209d62d22d184488e57",
+                    "variables": json.dumps(variables),
+                },
+                rate_category="get_feed",
+                full_url="https://www.instagram.com/graphql/query/",
+            )
+            return data
+        except Exception as e:
+            logger.debug(f"[Feed] Legacy liked also failed: {e}")
+            return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}
 
-    async def get_saved(self, max_id: Optional[str] = None) -> Dict[str, Any]:
+    # ═══════════════════════════════════════════════════════════
+    # SAVED POSTS (GraphQL v2 → legacy hash fallback)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_saved(
+        self,
+        count: int = 20,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Saved (bookmarked) posts.
 
+        Strategy:
+            1. GraphQL doc_id POST (modern)
+            2. Legacy query_hash GET (deprecated)
+
         Args:
-            max_id: Pagination cursor
+            count: Posts per page
+            cursor: Pagination cursor
 
         Returns:
-            Saved posts
+            dict: {posts, has_next, end_cursor, count}
         """
-        params = {}
-        if max_id:
-            params["max_id"] = max_id
+        # Strategy 1: GraphQL v2
+        if self._graphql:
+            try:
+                return self._graphql.get_saved_v2(count=count, after=cursor)
+            except Exception as e:
+                logger.debug(f"[Feed] GraphQL saved failed: {e}, trying legacy...")
 
-        return await self._client.get(
-            "/feed/saved/",
-            params=params if params else None,
-            rate_category="get_feed",
-        )
+        # Strategy 2: Legacy query_hash
+        try:
+            sess = self._client.get_session()
+            variables = {"id": str(sess.ds_user_id) if sess else "", "first": count}
+            if cursor:
+                variables["after"] = cursor
+            data = await self._client.get(
+                "/graphql/query/",
+                params={
+                    "query_hash": "2ce1d673055b99c84dc0d5b62e3f30d2",
+                    "variables": json.dumps(variables),
+                },
+                rate_category="get_feed",
+                full_url="https://www.instagram.com/graphql/query/",
+            )
+            return data
+        except Exception as e:
+            logger.debug(f"[Feed] Legacy saved also failed: {e}")
+            return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}
 
-    # ─── TAG / LOCATION FEED ────────────────────────────────
+    # ═══════════════════════════════════════════════════════════
+    # TAG FEED (GraphQL v2 → REST fallback)
+    # ═══════════════════════════════════════════════════════════
 
-    async def get_tag_feed(self, hashtag: str, max_id: Optional[str] = None) -> Dict[str, Any]:
+    async def get_tag_feed(
+        self,
+        hashtag: str,
+        count: int = 20,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Posts feed by hashtag.
 
+        Strategy:
+            1. GraphQL doc_id POST (web-compatible)
+            2. REST /feed/tag/ (needs mobile session)
+
         Args:
             hashtag: Hashtag name (without #)
-            max_id: Pagination cursor
+            count: Posts per page
+            cursor: Pagination cursor
 
         Returns:
-            dict: {items, more_available, next_max_id}
+            dict: {posts, has_next, end_cursor, count}
         """
-        params = {}
-        if max_id:
-            params["max_id"] = max_id
-        return await self._client.get(
-            f"/feed/tag/{hashtag}/",
-            params=params if params else None,
-            rate_category="get_feed",
-        )
+        # Strategy 1: GraphQL v2
+        if self._graphql:
+            try:
+                return self._graphql.get_tag_feed_v2(
+                    hashtag=hashtag, count=count, after=cursor
+                )
+            except Exception as e:
+                logger.debug(f"[Feed] GraphQL tag feed failed: {e}, trying REST...")
 
-    async def get_location_feed(self, location_id: int | str, max_id: Optional[str] = None) -> Dict[str, Any]:
+        # Strategy 2: REST fallback
+        try:
+            params = {}
+            if cursor:
+                params["max_id"] = cursor
+            return await self._client.get(
+                f"/feed/tag/{hashtag}/",
+                params=params if params else None,
+                rate_category="get_feed",
+            )
+        except Exception as e:
+            logger.debug(f"[Feed] REST tag feed also failed: {e}")
+            return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}
+
+    # ═══════════════════════════════════════════════════════════
+    # LOCATION FEED (REST only — no GraphQL equivalent yet)
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_location_feed(
+        self,
+        location_id: int | str,
+        max_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Posts feed by location.
 
@@ -167,91 +363,46 @@ class AsyncFeedAPI:
             rate_category="get_feed",
         )
 
-    # ─── TIMELINE (GraphQL v2 → REST fallback) ─────────────────
+    # ═══════════════════════════════════════════════════════════
+    # REELS FEED (GraphQL v2 → REST fallback)
+    # ═══════════════════════════════════════════════════════════
 
-    async def get_timeline(self, max_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Home timeline feed — GraphQL v2 first, REST fallback.
-
-        Args:
-            max_id: Pagination cursor (end_cursor for GraphQL, max_id for REST)
-
-        Returns:
-            dict: {posts, count, has_next, end_cursor}
-        """
-        if self._graphql:
-            try:
-                return await self._graphql.get_timeline_v2(count=12, after=max_id)
-            except Exception as e:
-                logger.debug(f"GraphQL timeline failed, falling back to REST: {e}")
-
-        # REST fallback
-        params = {}
-        if max_id:
-            params["max_id"] = max_id
-        return await self._client.get(
-            "/feed/timeline/",
-            params=params if params else None,
-            rate_category="get_feed",
-        )
-
-    async def get_all_timeline(
+    async def get_reels_feed(
         self,
-        max_count: int = 50,
+        count: int = 20,
+        cursor: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Get multiple pages of timeline (auto-pagination).
+        Reels tab (trending reels).
+
+        Strategy:
+            1. GraphQL doc_id POST (web-compatible)
+            2. REST /clips/trending/ (needs mobile session)
 
         Args:
-            max_count: Maximum number of posts to get
+            count: Reels per page
+            cursor: Pagination cursor
 
         Returns:
-            dict: {posts, count}
+            dict: {posts, has_next, end_cursor, count}
         """
-        all_posts = []
-        cursor = None
-
-        while len(all_posts) < max_count:
-            result = await self.get_timeline(max_id=cursor)
-
-            posts = result.get("posts", result.get("feed_items", []))
-            if not posts:
-                break
-
-            all_posts.extend(posts)
-            cursor = result.get("end_cursor", result.get("next_max_id"))
-            has_next = result.get("has_next", result.get("more_available", False))
-
-            if not has_next or not cursor:
-                break
-            await asyncio.sleep(1.0)
-
-        return {"posts": all_posts[:max_count], "count": len(all_posts[:max_count])}
-
-    # ─── REELS (GraphQL v2 → REST fallback) ─────────────────
-
-    async def get_reels_feed(self, max_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Reels tab — GraphQL v2 first, REST fallback.
-
-        Args:
-            max_id: Pagination cursor
-
-        Returns:
-            dict: Reels posts
-        """
+        # Strategy 1: GraphQL v2
         if self._graphql:
             try:
-                return await self._graphql.get_reels_trending_v2(count=10, after=max_id)
+                return self._graphql.get_reels_trending_v2(count=count, after=cursor)
             except Exception as e:
-                logger.debug(f"GraphQL reels failed, falling back to REST: {e}")
+                logger.debug(f"[Feed] GraphQL reels failed: {e}, trying REST...")
 
-        params = {}
-        if max_id:
-            params["max_id"] = max_id
-        return await self._client.get(
-            "/clips/trending/",
-            params=params if params else None,
-            rate_category="get_feed",
-        )
-
+        # Strategy 2: REST fallback
+        try:
+            params = {}
+            if cursor:
+                params["max_id"] = cursor
+            return await self._client.get(
+                "/clips/trending/",
+                params=params if params else None,
+                rate_category="get_feed",
+            )
+        except Exception as e:
+            logger.debug(f"[Feed] REST reels also failed: {e}")
+            return {"posts": [], "has_next": False, "end_cursor": None, "count": 0}

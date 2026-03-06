@@ -7,6 +7,7 @@ Create, edit, delete collections and manage saved posts.
 
 from typing import Any, Dict, List, Optional
 
+import asyncio
 from ..async_client import AsyncHttpClient
 
 
@@ -121,3 +122,6 @@ class AsyncCollectionsAPI:
             data={"removed_media_ids": str(media_ids)},
             rate_category="post_default",
         )
+
+    # Alias for convenience
+    get_all = get_list

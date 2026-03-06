@@ -6,7 +6,9 @@ DM inbox, read threads, send messages, mark as seen.
 
 from typing import Any, Dict, List, Optional
 import json
+import uuid
 
+import asyncio
 from ..async_client import AsyncHttpClient
 
 
@@ -141,6 +143,7 @@ class AsyncDirectAPI:
     async def create_thread(self, user_ids: List[int | str], text: str = "") -> Dict[str, Any]:
         """
         Create a new conversation (thread).
+        Formats payload specifically for the Web API endpoint to evade WAF.
 
         Args:
             user_ids: Recipient list (user PKs)
@@ -149,8 +152,14 @@ class AsyncDirectAPI:
         Returns:
             dict: New thread data
         """
+        client_context = str(uuid.uuid4())
         data = {
-            "recipient_users": json.dumps([str(uid) for uid in user_ids]),
+            "action": "send_item",
+            "recipient_users": json.dumps([[str(uid) for uid in user_ids]]),
+            "client_context": client_context,
+            "mutation_token": client_context,
+            "offline_threading_id": client_context,
+            "_uuid": str(uuid.uuid4()),
         }
         if text:
             data["text"] = text
