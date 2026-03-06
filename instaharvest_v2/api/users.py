@@ -219,7 +219,7 @@ class UsersAPI:
         # 1. web_profile_info
         web_user = self.get_by_username(username)
 
-        # 2. user_info (qo'shimcha infolar)
+        # 2. user_info (additional info)
         info_user = self.get_by_id(web_user.pk) if web_user.pk else User()
 
         # 3. Bio parse

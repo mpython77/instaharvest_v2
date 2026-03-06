@@ -171,6 +171,7 @@ class AsyncAnonClient:
         self._request_count = 0
         self._error_count = 0
         self._active_requests = 0
+        self._traffic_bytes = 0
 
         # Configurable strategy chains
         self._profile_strategies = parse_profile_strategies(profile_strategies)
@@ -304,7 +305,12 @@ class AsyncAnonClient:
             try:
                 session = await self._get_session()
                 response = await session.get(**kwargs)
-                self._request_count += 1
+                async with self._stats_lock:
+                    self._request_count += 1
+                    try:
+                        self._traffic_bytes += len(response.content)
+                    except Exception:
+                        pass
 
                 # Report proxy success
                 if proxy_url:

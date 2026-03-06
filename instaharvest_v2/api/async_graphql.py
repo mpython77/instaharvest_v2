@@ -371,13 +371,17 @@ class AsyncGraphQLAPI:
         variables = {
             "media_id": str(media_id),
             "first": min(count, 50),
+            "last": None,
             "after": after,
+            "before": None,
+            "sort_order": "popular",
+            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": True,
         }
 
         data = await self._graphql_doc_query(
             doc_id=DOC_IDS["media_comments"],
             variables=variables,
-            friendly_name="CommentsQuery",
+            friendly_name="PolarisPostCommentsPaginationQuery",
         )
 
         connection = (
@@ -527,6 +531,194 @@ class AsyncGraphQLAPI:
         }
 
     # ═══════════════════════════════════════════════════════════
+    # HOVER CARD / SUGGESTED / LIKE / TIMELINE / REELS / SAVED
+    # ═══════════════════════════════════════════════════════════
+
+    async def get_hover_card(
+        self,
+        user_id: str,
+        username: str,
+    ) -> Dict[str, Any]:
+        """Mini profile popup — fast user info."""
+        variables = {"userID": str(user_id), "username": username}
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["profile_hover_card"],
+            variables=variables,
+            friendly_name="PolarisUserHoverCardContentV2Query",
+        )
+
+        info = data.get("data", {}).get("xdt_api__v1__users__info", {})
+        friendship = info.get("friendship_status", {}) or {}
+        mutual = info.get("mutual_followers", {}) or {}
+
+        return {
+            "pk": info.get("pk"),
+            "username": info.get("username", username),
+            "full_name": info.get("full_name", ""),
+            "biography": info.get("biography", ""),
+            "follower_count": info.get("follower_count", 0),
+            "following_count": info.get("following_count", 0),
+            "media_count": info.get("media_count", 0),
+            "is_verified": info.get("is_verified", False),
+            "is_private": info.get("is_private", False),
+            "profile_pic_url": info.get("profile_pic_url", ""),
+            "is_following": friendship.get("following", False),
+            "is_followed_by": friendship.get("followed_by", False),
+            "mutual_count": mutual.get("count", 0),
+            "mutual_followers": mutual.get("users", []),
+        }
+
+    async def get_suggested_users(
+        self,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """Similar accounts for a user (Suggested for you)."""
+        variables = {"module": "profile", "target_id": str(user_id)}
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["profile_suggested"],
+            variables=variables,
+            friendly_name="PolarisProfileSuggestedUsersWithPreloadableQuery",
+        )
+
+        users_data = (
+            data.get("data", {})
+            .get("xdt_api__v1__discover__chaining", {})
+            .get("users", [])
+        )
+
+        users = []
+        for u in users_data:
+            if isinstance(u, dict):
+                users.append({
+                    "pk": u.get("pk"),
+                    "username": u.get("username", ""),
+                    "full_name": u.get("full_name", ""),
+                    "is_verified": u.get("is_verified", False),
+                    "is_private": u.get("is_private", False),
+                    "follower_count": u.get("follower_count", 0),
+                    "profile_pic_url": u.get("profile_pic_url", ""),
+                    "social_context": u.get("social_context", ""),
+                })
+
+        return {"users": users, "count": len(users)}
+
+    async def like_media(self, media_id: str) -> Dict[str, Any]:
+        """Like a post (mutation)."""
+        variables = {
+            "media_id": str(media_id),
+            "container_module": "single_post",
+        }
+        try:
+            data = await self._graphql_doc_query(
+                doc_id=DOC_IDS["like_media"],
+                variables=variables,
+                friendly_name="usePolarisLikeMediaLikeMutation",
+            )
+            return {"success": True, "media_id": str(media_id), "data": data}
+        except Exception as e:
+            logger.warning(f"Like media failed: {e}")
+            return {"success": False, "media_id": str(media_id), "error": str(e)}
+
+    async def _parse_timeline_connection(
+        self,
+        data: Dict,
+        connection_key: str,
+    ) -> Dict[str, Any]:
+        """Parse timeline/reels connection edges."""
+        connection = data.get("data", {}).get(connection_key, {})
+        edges = connection.get("edges", [])
+        page_info = connection.get("page_info", {})
+
+        posts = []
+        for edge in edges:
+            node = edge.get("node", {})
+            media = node.get("media", node)
+            posts.append(GraphQLAPI._parse_v2_media(media))
+
+        return {
+            "posts": posts,
+            "count": len(posts),
+            "has_next": page_info.get("has_next_page", False),
+            "end_cursor": page_info.get("end_cursor"),
+        }
+
+    async def get_timeline_v2(
+        self,
+        count: int = 12,
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Home timeline via GraphQL v2."""
+        if after:
+            doc_id = DOC_IDS["feed_timeline_pagination"]
+            friendly = "PolarisFeedRootPaginationCachedQuery_subscribe"
+        else:
+            doc_id = DOC_IDS["feed_timeline"]
+            friendly = "PolarisFeedTimelineRootV2Query"
+
+        variables = {
+            "first": min(count, 20),
+            "after": after,
+            "before": None,
+            "last": None,
+            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": True,
+            "__relay_internal__pv__PolarisFeedShareMenurelayprovider": True,
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=doc_id,
+            variables=variables,
+            friendly_name=friendly,
+        )
+
+        return await self._parse_timeline_connection(
+            data, "xdt_api__v1__feed__timeline__connection"
+        )
+
+    async def get_reels_trending_v2(
+        self,
+        count: int = 10,
+        after: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Trending reels via GraphQL v2."""
+        variables = {
+            "first": min(count, 12),
+            "after": after,
+            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": True,
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["feed_reels_trending"],
+            variables=variables,
+            friendly_name="PolarisClipsTabContentQuery_connection",
+        )
+
+        return await self._parse_timeline_connection(
+            data, "xdt_api__v1__clips__trending__connection"
+        )
+
+    async def get_saved_v2(self) -> Dict[str, Any]:
+        """Saved/bookmarked posts via GraphQL v2."""
+        variables = {
+            "first": 12,
+            "last": None,
+            "before": None,
+            "after": None,
+            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": True,
+        }
+
+        data = await self._graphql_doc_query(
+            doc_id=DOC_IDS["feed_saved"],
+            variables=variables,
+            friendly_name="PolarisSavedCollectionsContentQuery_connection",
+        )
+
+        return await self._parse_timeline_connection(
+            data, "xdt_api__v1__feed__saved__connection"
+        )
+
+    # ═══════════════════════════════════════════════════════════
     # RAW QUERIES
     # ═══════════════════════════════════════════════════════════
 
@@ -546,3 +738,4 @@ class AsyncGraphQLAPI:
     ) -> Dict[str, Any]:
         """Send arbitrary GraphQL doc_id query (modern POST)."""
         return await self._graphql_doc_query(doc_id, variables, friendly_name)
+

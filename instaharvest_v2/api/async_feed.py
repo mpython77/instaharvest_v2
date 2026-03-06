@@ -1,21 +1,26 @@
 """
-Feed API
-========
-User feeds: posts, liked, saved.
-Pagination support.
+Feed API (Async)
+================
+User feeds: posts, liked, saved, timeline, tag, reels.
+Pagination support. GraphQL v2 + REST fallback.
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from ..async_client import AsyncHttpClient
 from ..models.media import Media as MediaModel
 
+import logging
+logger = logging.getLogger("instaharvest_v2")
+
 
 class AsyncFeedAPI:
-    """Instagram feed API"""
+    """Instagram feed API (async) — GraphQL v2 + REST fallback."""
 
-    def __init__(self, client: AsyncHttpClient):
+    def __init__(self, client: AsyncHttpClient, graphql=None):
         self._client = client
+        self._graphql = graphql  # AsyncGraphQLAPI instance (injected)
 
     async def get_user_feed(
         self,
@@ -162,16 +167,25 @@ class AsyncFeedAPI:
             rate_category="get_feed",
         )
 
+    # ─── TIMELINE (GraphQL v2 → REST fallback) ─────────────────
+
     async def get_timeline(self, max_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Home timeline feed.
+        Home timeline feed — GraphQL v2 first, REST fallback.
 
         Args:
-            max_id: Pagination cursor
+            max_id: Pagination cursor (end_cursor for GraphQL, max_id for REST)
 
         Returns:
-            dict: {feed_items, num_results, more_available}
+            dict: {posts, count, has_next, end_cursor}
         """
+        if self._graphql:
+            try:
+                return await self._graphql.get_timeline_v2(count=12, after=max_id)
+            except Exception as e:
+                logger.debug(f"GraphQL timeline failed, falling back to REST: {e}")
+
+        # REST fallback
         params = {}
         if max_id:
             params["max_id"] = max_id
@@ -181,9 +195,44 @@ class AsyncFeedAPI:
             rate_category="get_feed",
         )
 
+    async def get_all_timeline(
+        self,
+        max_count: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        Get multiple pages of timeline (auto-pagination).
+
+        Args:
+            max_count: Maximum number of posts to get
+
+        Returns:
+            dict: {posts, count}
+        """
+        all_posts = []
+        cursor = None
+
+        while len(all_posts) < max_count:
+            result = await self.get_timeline(max_id=cursor)
+
+            posts = result.get("posts", result.get("feed_items", []))
+            if not posts:
+                break
+
+            all_posts.extend(posts)
+            cursor = result.get("end_cursor", result.get("next_max_id"))
+            has_next = result.get("has_next", result.get("more_available", False))
+
+            if not has_next or not cursor:
+                break
+            await asyncio.sleep(1.0)
+
+        return {"posts": all_posts[:max_count], "count": len(all_posts[:max_count])}
+
+    # ─── REELS (GraphQL v2 → REST fallback) ─────────────────
+
     async def get_reels_feed(self, max_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Reels tab (explore reels).
+        Reels tab — GraphQL v2 first, REST fallback.
 
         Args:
             max_id: Pagination cursor
@@ -191,6 +240,12 @@ class AsyncFeedAPI:
         Returns:
             dict: Reels posts
         """
+        if self._graphql:
+            try:
+                return await self._graphql.get_reels_trending_v2(count=10, after=max_id)
+            except Exception as e:
+                logger.debug(f"GraphQL reels failed, falling back to REST: {e}")
+
         params = {}
         if max_id:
             params["max_id"] = max_id
@@ -199,3 +254,4 @@ class AsyncFeedAPI:
             params=params if params else None,
             rate_category="get_feed",
         )
+

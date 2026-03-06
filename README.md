@@ -315,9 +315,9 @@ print(card["mutual_followers"])  # [{username, pk, ...}]
 suggested = ig.graphql.get_suggested_users(user_id="173560420")
 for user in suggested["users"]:
     print(f"@{user['username']} | {user['full_name']}")
-# → @messi, @neymar, @ronaldo, ... (80 ta o'xshash akkaunt)
+# → @messi, @neymar, @ronaldo, ... (~80 similar accounts)
 
-# 📷 User posts (GraphQL — paginatsiya bilan)
+# 📷 User posts (GraphQL — with pagination)
 data = ig.graphql.get_user_posts_v2("cristiano")
 for post in data["posts"]:
     print(f"{post['shortcode']} | ❤️{post['like_count']} | {post['caption'][:50]}")

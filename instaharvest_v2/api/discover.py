@@ -14,7 +14,7 @@ Provides:
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ..client import HttpClient
 from ..models.user import UserShort
@@ -59,8 +59,8 @@ class DiscoverAPI:
         Similar accounts — raw GraphQL response.
 
         Args:
-            user_id: Target user ID (profil egasi PK)
-            doc_id: Custom doc_id (agar default ishlamasa)
+            user_id: Target user ID (profile owner PK)
+            doc_id: Custom doc_id (if default doesn't work)
 
         Returns:
             Full GraphQL response dict
@@ -102,7 +102,7 @@ class DiscoverAPI:
 
         Args:
             user_id: Target user ID (pk)
-            doc_id: Custom doc_id (agar default ishlamasa)
+            doc_id: Custom doc_id (if default doesn't work)
 
         Returns:
             List[UserShort]: List of suggested users
@@ -194,7 +194,7 @@ class DiscoverAPI:
             user_id: Target user ID
 
         Returns:
-            List[str]: Username'lar listi
+            List[str]: List of usernames
         """
         users = self.get_suggested_users(user_id=user_id, doc_id=doc_id)
         return [u.username for u in users if u.username]
@@ -219,7 +219,8 @@ class DiscoverAPI:
         max_depth: int = 2,
         max_per_layer: int = 20,
         delay: float = 3.0,
-        on_progress: Optional[Any] = None,
+        max_total: int = 10000,
+        on_progress: Optional[Callable] = None,
     ) -> Dict[str, Any]:
         """
         Multi-layer chain discovery — thousands of leads from one seed.
@@ -281,6 +282,11 @@ class DiscoverAPI:
 
         current_layer = 0
         while queue:
+            # Memory guard
+            if len(all_users) >= max_total:
+                logger.warning(f"Chain: max_total {max_total} reached, stopping.")
+                break
+
             user_id, source, layer = queue.pop(0)
 
             # Layer depth check
