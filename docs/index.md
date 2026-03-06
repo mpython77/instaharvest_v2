@@ -13,19 +13,6 @@
 
 ---
 
-## Why InstaHarvest v2?
-
-| Feature | InstaHarvest v2 | instagrapi | instaloader |
-|---|---|---|---|
-| Anonymous scraping | ✅ Configurable strategies | ⚠️ Limited | ⚠️ Basic |
-| Async support | ✅ 38 async modules | ⚠️ Limited | ❌ |
-| TLS fingerprint | ✅ 5 browser profiles | ❌ | ❌ |
-| Speed modes | ✅ 4 modes | ❌ | ❌ |
-| Proxy management | ✅ Built-in | ⚠️ Basic | ❌ |
-| AI Agent | ✅ 14 providers | ❌ | ❌ |
-| Advanced tools | ✅ 11 tools | ❌ | ❌ |
-| CI/CD + Tests | ✅ 507 tests | ⚠️ Basic | ⚠️ Basic |
-
 ## Key Features
 
 <div class="grid cards" markdown>
