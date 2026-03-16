@@ -35,7 +35,7 @@
 
     ---
 
-    33 sync + 33 async modules — complete feature match. `asyncio.gather` for bulk ops.
+    31 sync + 31 async modules — complete feature match. `asyncio.gather` for bulk ops.
 
 - :material-shield-lock:{ .lg .middle } **Anti-Detection**
 
@@ -59,11 +59,11 @@
 
     ---
 
-    Control Instagram with natural language. 13 AI providers, 37 tools, memory, scheduling, webhooks.
+    Control Instagram with natural language. 13+ AI providers, 161 tools, memory, scheduling, webhooks.
 
     [:octicons-arrow-right-24: Learn more](agent/overview.md)
 
-- :material-tools:{ .lg .middle } **13 Advanced Tools** :material-new-box:{ .lg .middle }
+- :material-tools:{ .lg .middle } **Advanced Tools** :material-new-box:{ .lg .middle }
 
     ---
 
@@ -75,23 +75,23 @@
 
     ---
 
-    489 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build.
+    6242 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build.
 
 </div>
 
 ## Installation { #installation }
 
 ```bash
-pip install InstaHarvest v2
+pip install instaharvest-v2
 ```
 
 **With extras:**
 
 ```bash
-pip install InstaHarvest v2[dev]      # pytest, pytest-cov, pytest-asyncio
-pip install InstaHarvest v2[agent]    # AI providers (Gemini, OpenAI, Claude)
-pip install InstaHarvest v2[web]      # FastAPI web playground
-pip install InstaHarvest v2[all]      # everything
+pip install instaharvest-v2[dev]      # pytest, pytest-cov, pytest-asyncio
+pip install instaharvest-v2[agent]    # AI providers (Gemini, OpenAI, Claude)
+pip install instaharvest-v2[web]      # FastAPI web playground
+pip install instaharvest-v2[all]      # everything
 ```
 
 ## Quick Example
