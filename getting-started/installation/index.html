@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Powerful Instagram Private API Library — 32 sync + 32 async modules, AI Agent, anti-detection, curl_cffi engine">
+        <meta name="description" content="Powerful Instagram Private API Library — 31 sync + 31 async modules, 161 AI Agent tools, anti-detection, curl_cffi engine">
       
       
       
@@ -2905,15 +2905,15 @@
 <li><strong>curl_cffi</strong> — TLS fingerprint engine (auto-installed)</li>
 </ul>
 <h2 id="install-from-pypi">Install from PyPI<a class="headerlink" href="#install-from-pypi" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>InstaHarvest<span class="w"> </span>v2
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>instaharvest-v2
 </span></code></pre></div>
 <h2 id="install-from-source">Install from source<a class="headerlink" href="#install-from-source" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/mpython77/instaharvest_v2.git
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>InstaHarvest<span class="w"> </span>v2
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>instaharvest_v2
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 </span></code></pre></div>
 <h2 id="dependencies">Dependencies<a class="headerlink" href="#dependencies" title="Permanent link">&para;</a></h2>
-<p>InstaHarvest v2 automatically installs these:</p>
+<p>instaharvest-v2 automatically installs these:</p>
 <table>
 <thead>
 <tr>
@@ -2950,16 +2950,16 @@
 </span></code></pre></div>
 <h2 id="optional-dependencies">Optional Dependencies<a class="headerlink" href="#optional-dependencies" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># AI Agent providers</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>pip<span class="w"> </span>install<span class="w"> </span>InstaHarvest<span class="w"> </span>v2<span class="o">[</span>agent<span class="o">]</span><span class="w">    </span><span class="c1"># openai, google-genai, anthropic, rich</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>pip<span class="w"> </span>install<span class="w"> </span>instaharvest-v2<span class="o">[</span>agent<span class="o">]</span><span class="w">    </span><span class="c1"># openai, google-genai, anthropic, rich</span>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Web playground (FastAPI)</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>pip<span class="w"> </span>install<span class="w"> </span>InstaHarvest<span class="w"> </span>v2<span class="o">[</span>web<span class="o">]</span><span class="w">      </span><span class="c1"># fastapi, uvicorn + agent deps</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>pip<span class="w"> </span>install<span class="w"> </span>instaharvest-v2<span class="o">[</span>web<span class="o">]</span><span class="w">      </span><span class="c1"># fastapi, uvicorn + agent deps</span>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Development tools</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>pip<span class="w"> </span>install<span class="w"> </span>InstaHarvest<span class="w"> </span>v2<span class="o">[</span>dev<span class="o">]</span><span class="w">      </span><span class="c1"># pytest, pytest-asyncio, pytest-cov</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>pip<span class="w"> </span>install<span class="w"> </span>instaharvest-v2<span class="o">[</span>dev<span class="o">]</span><span class="w">      </span><span class="c1"># pytest, pytest-asyncio, pytest-cov</span>
 </span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
 </span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1"># Everything</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>pip<span class="w"> </span>install<span class="w"> </span>InstaHarvest<span class="w"> </span>v2<span class="o">[</span>all<span class="o">]</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>pip<span class="w"> </span>install<span class="w"> </span>instaharvest-v2<span class="o">[</span>all<span class="o">]</span>
 </span></code></pre></div>
 
 
