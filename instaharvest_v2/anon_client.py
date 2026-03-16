@@ -114,6 +114,7 @@ class AnonClient:
         unlimited: bool = False,
         profile_strategies=None,
         posts_strategies=None,
+        cookies: Optional[Dict[str, str]] = None,
     ):
         self._anti_detect = anti_detect or AntiDetect()
         self._proxy_mgr = proxy_manager
@@ -122,6 +123,7 @@ class AnonClient:
         self._delays = ANON_REQUEST_DELAYS_UNLIMITED if unlimited else ANON_REQUEST_DELAYS
         self._request_count = 0
         self._error_count = 0
+        self._cookies = cookies or {}
         # Configurable strategy chains
         self._profile_strategies = parse_profile_strategies(profile_strategies)
         self._posts_strategies = parse_posts_strategies(posts_strategies)
@@ -200,6 +202,8 @@ class AnonClient:
             kwargs["params"] = params
         if proxy:
             kwargs["proxies"] = {"https": proxy, "http": proxy}
+        if self._cookies:
+            kwargs["cookies"] = self._cookies
 
         if post_data:
             kwargs["data"] = post_data
@@ -550,6 +554,8 @@ class AnonClient:
         }
         if proxy:
             kwargs["proxies"] = {"https": proxy, "http": proxy}
+        if self._cookies:
+            kwargs["cookies"] = self._cookies
 
         last_error = None
         for attempt in range(MAX_RETRIES + 1):
@@ -873,7 +879,7 @@ class AnonClient:
 
     def get_web_api(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
-        Web API request without cookies.
+        Web API GET request.
         Uses www.instagram.com — most /api/v1/ endpoints only work here.
         sec-fetch-* set for XHR pattern (not navigation).
         """
@@ -888,12 +894,43 @@ class AnonClient:
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
         }
+        # Add CSRF token if cookies available
+        if self._cookies and self._cookies.get("csrftoken"):
+            extra_headers["x-csrftoken"] = self._cookies["csrftoken"]
 
         try:
             return self._request(
                 url, "web_api",
                 headers=extra_headers,
                 params=params,
+                parse_json=True,
+            )
+        except StrategyFailed:
+            return None
+
+    def post_web_api(self, endpoint: str, data: Optional[Dict] = None) -> Optional[Dict]:
+        """
+        Web API POST request.
+        Some endpoints (tags/sections, locations/sections) require POST.
+        """
+        url = f"https://www.instagram.com/api/v1{endpoint}"
+        extra_headers = {
+            "accept": "*/*",
+            "x-ig-app-id": IG_APP_ID,
+            "x-requested-with": "XMLHttpRequest",
+            "referer": "https://www.instagram.com/",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+        }
+        if self._cookies and self._cookies.get("csrftoken"):
+            extra_headers["x-csrftoken"] = self._cookies["csrftoken"]
+
+        try:
+            return self._request(
+                url, "web_api",
+                headers=extra_headers,
+                post_data=data,
                 parse_json=True,
             )
         except StrategyFailed:
@@ -1161,11 +1198,18 @@ class AnonClient:
         """
         tag = tag_name.lstrip("#").strip().lower()
         endpoint = f"/tags/{tag}/sections/"
-        params = {"tab": tab}
+        post_data = {"tab": tab, "surface": "grid", "include_persistent": "0"}
         if max_id:
-            params["max_id"] = max_id
+            post_data["max_id"] = max_id
 
-        data = self.get_web_api(endpoint, params=params)
+        # Sections endpoints require POST
+        data = self.post_web_api(endpoint, data=post_data)
+        # Fallback to GET for backward compat
+        if not data:
+            params = {"tab": tab}
+            if max_id:
+                params["max_id"] = max_id
+            data = self.get_web_api(endpoint, params=params)
         if data and isinstance(data, dict):
             posts = []
             for section in data.get("sections", []):
@@ -1208,11 +1252,18 @@ class AnonClient:
             Dict with: location_info, posts, more_available, next_max_id
         """
         endpoint = f"/locations/{location_id}/sections/"
-        params = {"tab": tab}
+        post_data = {"tab": tab}
         if max_id:
-            params["max_id"] = max_id
+            post_data["max_id"] = max_id
 
-        data = self.get_web_api(endpoint, params=params)
+        # Sections endpoints require POST
+        data = self.post_web_api(endpoint, data=post_data)
+        # Fallback to GET for backward compat
+        if not data:
+            params = {"tab": tab}
+            if max_id:
+                params["max_id"] = max_id
+            data = self.get_web_api(endpoint, params=params)
         if data and isinstance(data, dict):
             posts = []
             for section in data.get("sections", []):

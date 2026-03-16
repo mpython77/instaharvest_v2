@@ -247,9 +247,26 @@ class Instagram:
         )
 
         # Anonymous public API (no login needed)
+        # If user has a session, pass cookies to AnonClient for better data access
+        anon_cookies = None
+        if session_id and ds_user_id:
+            anon_cookies = {
+                "sessionid": session_id,
+                "ds_user_id": ds_user_id,
+            }
+            if csrf_token:
+                anon_cookies["csrftoken"] = csrf_token
+            if mid:
+                anon_cookies["mid"] = mid
+            if ig_did:
+                anon_cookies["ig_did"] = ig_did
+            if datr:
+                anon_cookies["datr"] = datr
+
         self._anon_client = AnonClient(
             anti_detect=self._anti_detect,
             proxy_manager=self._proxy_mgr,
+            cookies=anon_cookies,
         )
         self.public = PublicAPI(self._anon_client)
 
@@ -488,6 +505,7 @@ class Instagram:
         sess = instance._session_mgr.load_from_browser_cookies(cookie_path)
         if not sess:
             raise ValueError(f"Failed to load cookies from {cookie_path}")
+        instance._sync_anon_cookies()
         return instance
 
     @classmethod
@@ -571,6 +589,7 @@ class Instagram:
             debug_log_file=debug_log_file,
         )
         instance._session_mgr.load_from_env(env_path)
+        instance._sync_anon_cookies()
 
         if instance._session_mgr.session_count == 0:
             logger.warning(
@@ -591,6 +610,30 @@ class Instagram:
                 )
 
         return instance
+
+    def _sync_anon_cookies(self):
+        """
+        Sync session cookies to AnonClient.
+        Called after sessions are loaded post-init (from_env, from_cookie_file).
+        """
+        if self._session_mgr.session_count == 0:
+            return
+        sess = self._session_mgr.get_session()
+        if not sess:
+            return
+        cookies = {
+            "sessionid": sess.session_id,
+            "ds_user_id": sess.ds_user_id,
+        }
+        if getattr(sess, 'csrf_token', None):
+            cookies["csrftoken"] = sess.csrf_token
+        if getattr(sess, 'mid', None):
+            cookies["mid"] = sess.mid
+        if getattr(sess, 'ig_did', None):
+            cookies["ig_did"] = sess.ig_did
+        if getattr(sess, 'datr', None):
+            cookies["datr"] = sess.datr
+        self._anon_client._cookies = cookies
 
     # ─── Proxy management ────────────────────────────────────────
 
