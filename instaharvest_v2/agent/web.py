@@ -91,7 +91,7 @@ def create_app(
         verbose=False,
     )
 
-    app = FastAPI(title="instaharvest_v2 Agent", version="1.0.0")
+    app = FastAPI(title="instaharvest_v2 Agent", version="1.1.27")
 
     # Static files
     if STATIC_DIR.exists():

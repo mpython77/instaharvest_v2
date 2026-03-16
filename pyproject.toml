@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "instaharvest_v2"
-version = "1.0.23"
+version = "1.1.27"
 description = "Powerful Instagram Private API — anti-detection, async, Pydantic models"
 readme = "README.md"
 license = {text = "MIT"}
@@ -94,7 +94,7 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 precision = 1
-fail_under = 30
+fail_under = 70
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

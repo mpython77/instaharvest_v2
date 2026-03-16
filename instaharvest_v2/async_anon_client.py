@@ -219,6 +219,7 @@ class AsyncAnonClient:
         strategy: str,
         headers: Optional[Dict] = None,
         params: Optional[Dict] = None,
+        post_data: Optional[Dict] = None,
         parse_json: bool = True,
         timeout: int = 15,
     ) -> Any:
@@ -234,7 +235,7 @@ class AsyncAnonClient:
                 self._active_requests += 1
             try:
                 return await self._request_inner(
-                    url, strategy, headers, params, parse_json, timeout
+                    url, strategy, headers, params, post_data, parse_json, timeout
                 )
             finally:
                 async with self._stats_lock:
@@ -246,6 +247,7 @@ class AsyncAnonClient:
         strategy: str,
         headers: Optional[Dict] = None,
         params: Optional[Dict] = None,
+        post_data: Optional[Dict] = None,
         parse_json: bool = True,
         timeout: int = 15,
     ) -> Any:
@@ -299,12 +301,17 @@ class AsyncAnonClient:
             kwargs["params"] = params
         if proxy_dict:
             kwargs["proxies"] = proxy_dict
+        if post_data:
+            kwargs["data"] = post_data
 
         last_error = None
         for attempt in range(MAX_RETRIES + 1):
             try:
                 session = await self._get_session()
-                response = await session.get(**kwargs)
+                if post_data:
+                    response = await session.post(**kwargs)
+                else:
+                    response = await session.get(**kwargs)
                 async with self._stats_lock:
                     self._request_count += 1
                     try:
@@ -492,6 +499,20 @@ class AsyncAnonClient:
         if not result:
             result = self._parse_meta_tags(html)
 
+        # ── ENRICHMENT: always try to fill missing counts from meta tags ──
+        # Methods 1-3 may return a result without followers/following/posts
+        # Meta tags often have these in the description text
+        if result:
+            meta_data = self._parse_meta_tags(html)
+            # Fill in missing counts
+            for key in ("followers", "following", "posts_count"):
+                if not result.get(key) and meta_data.get(key):
+                    result[key] = meta_data[key]
+            # Fill in missing fields
+            for key in ("full_name", "biography", "profile_pic_url", "is_verified", "is_private"):
+                if not result.get(key) and meta_data.get(key):
+                    result[key] = meta_data[key]
+
         if result:
             result["_strategy"] = "html_parse"
             result["_username"] = username
@@ -663,7 +684,7 @@ class AsyncAnonClient:
             "x-ig-app-id": "936619743392459",
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-site",
+            "sec-fetch-site": "cross-site",
             "referer": "https://www.instagram.com/",
         }
 
@@ -672,6 +693,29 @@ class AsyncAnonClient:
                 url, "mobile_api",
                 headers=extra_headers,
                 params=params,
+                parse_json=True,
+            )
+        except AsyncStrategyFailed:
+            return None
+
+    async def post_mobile_api(self, endpoint: str, data: Optional[Dict] = None) -> Optional[Dict]:
+        """POST request to mobile API (i.instagram.com) — async."""
+        url = f"{MOBILE_API_BASE}{endpoint}"
+        extra_headers = {
+            "accept": "*/*",
+            "x-ig-app-id": "936619743392459",
+            "content-type": "application/x-www-form-urlencoded",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "referer": "https://www.instagram.com/",
+        }
+
+        try:
+            return await self._request(
+                url, "mobile_api",
+                headers=extra_headers,
+                post_data=data,
                 parse_json=True,
             )
         except AsyncStrategyFailed:
@@ -689,16 +733,20 @@ class AsyncAnonClient:
     # ═══════════════════════════════════════════════════════════
 
     async def get_web_api(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
-        """Web API request without cookies (async)."""
+        """Web API request without cookies (async).
+        Uses www.instagram.com — most /api/v1/ endpoints only work here.
+        sec-fetch-* set for XHR pattern (not navigation).
+        """
         url = f"https://www.instagram.com/api/v1{endpoint}"
         extra_headers = {
             "accept": "*/*",
             "x-ig-app-id": IG_APP_ID,
             "x-requested-with": "XMLHttpRequest",
+            "referer": "https://www.instagram.com/",
+            # Override _request() navigation defaults with API-appropriate values
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
-            "referer": "https://www.instagram.com/",
         }
 
         try:
@@ -730,42 +778,15 @@ class AsyncAnonClient:
     async def _get_web_profile_parsed(self, username: str) -> Optional[Dict]:
         """
         Get profile via web API and parse into standardized format (async).
-        Returns the richest data — same format as sync version.
+        Returns the richest data — all fields matching parse_graphql_user output.
         """
         raw = await self.get_web_profile(username)
         if not raw or not isinstance(raw, dict):
             return None
 
-        edges_media = raw.get("edge_owner_to_timeline_media", {})
-        bio_links = raw.get("bio_links", [])
-
-        profile = {
-            "user_id": raw.get("id"),
-            "username": raw.get("username"),
-            "full_name": raw.get("full_name"),
-            "biography": raw.get("biography", ""),
-            "profile_pic_url": raw.get("profile_pic_url"),
-            "profile_pic_url_hd": raw.get("profile_pic_url_hd", raw.get("profile_pic_url")),
-            "is_private": raw.get("is_private", False),
-            "is_verified": raw.get("is_verified", False),
-            "is_business": raw.get("is_business_account", False),
-            "category": raw.get("category_name", raw.get("business_category_name", "")),
-            "external_url": raw.get("external_url"),
-            "followers": raw.get("edge_followed_by", {}).get("count", 0),
-            "following": raw.get("edge_follow", {}).get("count", 0),
-            "posts_count": edges_media.get("count", 0),
-            "bio_links": bio_links if isinstance(bio_links, list) else [],
-            "pronouns": raw.get("pronouns", []),
-            "highlight_count": raw.get("highlight_reel_count", 0),
-            "recent_posts": self._parse_timeline_edges(edges_media.get("edges", [])),
-            "has_clips": raw.get("has_clips", False),
-            "has_guides": raw.get("has_guides", False),
-            "mutual_followers": raw.get("edge_mutual_followed_by", {}).get("count", 0),
-            "business_email": raw.get("business_email"),
-            "business_phone": raw.get("business_phone_number"),
-            "business_address": raw.get("business_address_json"),
-        }
-        return profile
+        # Use parse_graphql_user for consistent output across all strategies
+        from .parsers import parse_graphql_user
+        return parse_graphql_user(raw)
 
     async def get_profile_chain(self, username: str) -> Optional[Dict]:
         """
@@ -800,6 +821,7 @@ class AsyncAnonClient:
     async def get_post_chain(self, shortcode: str) -> Optional[Dict]:
         """Get post using fallback chain (async)."""
         strategies = [
+            ("graphql_docid", lambda: self.get_graphql_docid(shortcode)),
             ("embed", lambda: self.get_embed_data(shortcode)),
             ("graphql", lambda: self._graphql_post_fallback(shortcode)),
             ("web_api", lambda: self._web_post_fallback(shortcode)),
@@ -881,6 +903,7 @@ class AsyncAnonClient:
                 "more_available": data.get("more_available", False),
                 "next_max_id": data.get("next_max_id"),
                 "num_results": data.get("num_results", len(parsed)),
+                "_raw_keys": list(data.keys()),
             }
         return None
 
@@ -936,7 +959,7 @@ class AsyncAnonClient:
         }
         params = {"query": query, "context": context}
         try:
-            data = await self._request(url, "web_api", headers=headers, params=params)
+            data = await self._request(url, "web_api", headers=headers, params=params, parse_json=True)
             if data and isinstance(data, dict):
                 return {
                     "users": [
@@ -998,7 +1021,7 @@ class AsyncAnonClient:
         if max_id:
             params["max_id"] = max_id
 
-        data = await self.get_mobile_api("/clips/user/", params=params)
+        data = await self.post_mobile_api("/clips/user/", data=params)
         if data and isinstance(data, dict):
             items = data.get("items", [])
             paging = data.get("paging_info", {})

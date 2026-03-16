@@ -180,7 +180,7 @@ class AsyncPublicAPI:
                         media = web_profile.get("edge_owner_to_timeline_media", {})
                         edges = media.get("edges", [])
                         if edges:
-                            posts = await self._client._parse_timeline_edges(edges)
+                            posts = self._client._parse_timeline_edges(edges)
                             if posts:
                                 return posts[:max_count]
 
@@ -204,7 +204,7 @@ class AsyncPublicAPI:
                         )
                         if gql_data:
                             edges = gql_data.get("edges", [])
-                            posts = await self._client._parse_timeline_edges(edges)
+                            posts = self._client._parse_timeline_edges(edges)
                             if posts:
                                 return posts[:max_count]
 
@@ -305,7 +305,7 @@ class AsyncPublicAPI:
             media = web_profile.get("edge_owner_to_timeline_media", {})
             edges = media.get("edges", [])
             if edges:
-                posts = await self._client._parse_timeline_edges(edges)
+                posts = self._client._parse_timeline_edges(edges)
                 for p in posts:
                     pk = p.get("pk") or p.get("shortcode")
                     if pk and pk not in seen_pks:
@@ -499,7 +499,7 @@ class AsyncPublicAPI:
 
         posts = []
         edges = data.get("edge_hashtag_to_media", {}).get("edges", [])
-        posts = await self._client._parse_timeline_edges(edges)
+        posts = self._client._parse_timeline_edges(edges)
 
         return posts[:max_count]
 

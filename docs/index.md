@@ -35,7 +35,7 @@
 
     ---
 
-    32 sync + 32 async modules — complete feature match. `asyncio.gather` for bulk ops.
+    33 sync + 33 async modules — complete feature match. `asyncio.gather` for bulk ops.
 
 - :material-shield-lock:{ .lg .middle } **Anti-Detection**
 
@@ -59,15 +59,15 @@
 
     ---
 
-    Control Instagram with natural language. 13 AI providers, 10 tools, memory, scheduling, webhooks.
+    Control Instagram with natural language. 13 AI providers, 37 tools, memory, scheduling, webhooks.
 
     [:octicons-arrow-right-24: Learn more](agent/overview.md)
 
-- :material-tools:{ .lg .middle } **12 Advanced Tools** :material-new-box:{ .lg .middle }
+- :material-tools:{ .lg .middle } **13 Advanced Tools** :material-new-box:{ .lg .middle }
 
     ---
 
-    Analytics, Export, Growth, Automation, Monitor, Scheduler, Pipeline, AI Suggest, Audience, Comment Manager, A/B Test, Bulk Download.
+    Analytics, Export, Growth, Automation, Monitor, Scheduler, Pipeline, AI Suggest, Audience, Comment Manager, A/B Test, Bulk Download, Diagnostics.
 
     [:octicons-arrow-right-24: Browse tools](tools/analytics.md)
 

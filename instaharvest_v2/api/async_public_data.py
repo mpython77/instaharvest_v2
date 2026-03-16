@@ -733,7 +733,7 @@ class AsyncPublicDataAPI:
 
     async def get_hashtag_quota(self, profile_count: int = 1) -> Dict[str, Any]:
         """Get current hashtag search quota status."""
-        remaining = self._quota.get_remaining_quota(profile_count)
+        remaining = await self._quota.get_remaining_quota(profile_count)
         total = self.MAX_HASHTAG_PER_PROFILE * profile_count
         return {
             "remaining": remaining,
@@ -745,7 +745,7 @@ class AsyncPublicDataAPI:
 
     async def reset_quota(self) -> None:
         """Reset hashtag quota tracking (for testing)."""
-        self._quota.reset()
+        await self._quota.reset()
 
     # ─── Internal Methods ─────────────────────────────────────
 

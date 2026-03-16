@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.1.27] — 2026-03-16
+
+### Added
+
+- **agent/tools/utility_tools.py** — 7 new utility tools:
+  - `json_parse`, `csv_to_json`, `json_to_csv`, `calculate`, `text_replace`, `merge_files`, `download_url`
+- **agent/tools/** — Phase 5 tools (47 new tools across auth, analytics, export, automation, pipeline):
+  - Auth tools (3): `login`, `validate_session`, `logout`
+  - Analytics tools (8): `engagement_rate`, `best_posting_times`, `compare_accounts`, etc.
+  - Export tools (6): `export_followers_csv`, `export_to_json`, `save_to_sqlite`, etc.
+  - Automation tools (17): `auto_dm_new_followers`, `schedule_post`, `monitor_account`, etc.
+  - Pipeline tools (12): `pipeline_to_sqlite`, `bulk_download_posts`, `ai_suggest_hashtags`, etc.
+- Agent TOOL_HANDLERS expanded from 37 → **161 tools** (164 schemas)
+- 6242 tests passing (up from 489)
+
+### Fixed
+
+- **agent/core.py** — Critical dispatch bug: generic `_execute_tool` fallback was not passing `ig=`, `is_logged_in=`, `cache=` arguments to Phase 5 tool handlers, causing all new tools to fail at runtime
+- **README.md** — Updated all outdated statistics (modules, tools, tests, coverage, project structure)
+
+### Removed
+
+- Cleaned up 49 unused `cov*.txt` coverage dump files
+- Cleaned up 11 unused `.json` test artifacts
+- Removed `debug_logs/`, `htmlcov/`, `.pytest_cache/`, `dist/`, `downloads/`, `smart_proxy/` directories
+- Removed `test_live_agent.py`, `test_pro_arch.py`, `test_agent_tools.py`, `measure_coverage.py` (contained hardcoded API keys)
+- Added `my_test/` to `.gitignore`
+
+---
+
+## [1.0.24] — 2026-03-16
+
+### Added
+
+- **diagnostics.py** — Full API diagnostics module (41 methods: 22 PublicAPI + 19 AnonClient low-level)
+  - Sync + async testing, registry pattern, JSON output, CLI integration
+  - `run_diagnostics()`, `get_registered_methods()`, `MethodResult` exported from package
+- **cli.py** — `diagnose` subcommand: `python -m instaharvest_v2 diagnose cristiano --proxy ...`
+- **agent/tools/instagram_tools.py** — 15 new anonymous tool handlers:
+  - `get_user_id`, `is_public`, `exists`, `get_feed`, `get_all_posts`, `get_reels`,
+    `get_comments`, `get_highlights`, `get_similar_accounts`, `get_post_by_shortcode`,
+    `get_post_by_url`, `get_media_urls`, `get_hashtag_posts`, `get_location_posts`,
+    `run_diagnostics`
+- Agent TOOL_HANDLERS expanded from 23 → 37 tools
+
+### Changed
+
+- **agent/tools/instagram_tools.py** — `get_hashtag_info` no longer requires login (uses `ig.public.get_hashtag_posts_v2` with login fallback)
+- **README.md** — Updated module counts (33+33), added Public Anonymous API section (22 methods), Diagnostics section, project structure
+
+### Removed
+
+- **my_test/anon_api.py** — Migrated to `instaharvest_v2/diagnostics.py`
+- **my_test/_check_coverage.py** — No longer needed
+
+---
+
 ## [1.0.23] — 2026-03-06
 
 ### Removed

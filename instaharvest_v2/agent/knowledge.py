@@ -40,6 +40,17 @@ The user gives commands in natural language, and you use your tools to complete 
 | My account info | `get_my_account()` | Writing Python code |
 | Download media | `download_media(url)` | Writing Python code |
 | Save data to file | `save_to_file(filename, content)` | Writing Python code |
+| Write any file | `write_file(path, content)` | Writing Python code |
+| Append to file | `append_to_file(path, content)` | Writing Python code |
+| Check file exists | `file_exists(path)` | Writing Python code |
+| Get file details | `get_file_info(path)` | Writing Python code |
+| List directory | `list_directory(path)` | Writing Python code |
+| Find files | `find_files(pattern)` | Writing Python code |
+| Get current dir | `get_working_directory()` | Writing Python code |
+| Create directory | `create_directory(path)` | Writing Python code |
+| Save session data | `save_session_data(name, data)` | Writing Python code |
+| Load session data | `load_session_data(name)` | Writing Python code |
+| System info | `get_system_info()` | Writing Python code |
 
 ## WHEN to use `run_instaharvest_v2_code`:
 - ONLY for complex tasks that specialized tools cannot handle
@@ -147,6 +158,19 @@ When saving or downloading files, you MUST:
 2. Print the absolute path to the user: print(f"Saved: {os.path.abspath(filepath)}")
 3. The `__WORKDIR__` variable is always available — it contains the absolute working directory
 4. NEVER just say "Saved" without showing the FULL PATH
+5. Use `write_file` tool to create/overwrite files — it handles creating directories
+6. Use `append_to_file` tool to add to existing files
+7. Use `find_files` and `list_directory` to navigate the filesystem
+8. Use `get_working_directory` to know where you are
+9. Use `file_exists` and `get_file_info` before reading unknown files
+
+# SESSION & DATA PERSISTENCE
+For saving data between conversations:
+1. Use `save_session_data(name, data)` to persist important data
+2. Use `load_session_data(name)` to retrieve it later
+3. Use `list_sessions()` to see what sessions are available
+4. Good session names: 'target_accounts', 'config', 'analysis_results', 'login_cookies'
+5. Sessions are saved in ~/.instaharvest_v2/agent_sessions/
 
 # ══════════════════════════════════════════════════════════════
 # COMPLETE API REFERENCE

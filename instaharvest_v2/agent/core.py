@@ -148,6 +148,21 @@ class InstaAgent:
         # User data cache — persists across agent calls
         self._user_cache: Dict[str, Any] = {}
 
+        # ── Pro Architecture ──────────────────────────────
+        # Dead loop detection: track consecutive identical errors
+        self._error_tracker: Dict[str, int] = {}
+        self._max_identical_errors = 2
+
+        # Tool usage analytics
+        self._tool_stats: Dict[str, int] = {}
+        self._total_queries = 0
+
+        # Audit trail
+        self._audit_enabled = True
+        self._audit_dir = os.path.join(
+            os.path.expanduser("~"), ".instaharvest_v2", "agent_logs"
+        )
+
         # Advanced features
         self._memory = AgentMemory(memory_dir=memory_dir) if memory else None
         self._plugins = PluginManager()
@@ -169,8 +184,6 @@ class InstaAgent:
             # Check if ig actually has sessions (cookies)
             try:
                 if hasattr(ig, '_session_mgr') and ig._session_mgr.session_count > 0:
-                    self._is_logged_in = True
-                elif hasattr(ig, '_client') and ig._client is not None:
                     self._is_logged_in = True
                 else:
                     self._is_logged_in = False
@@ -530,6 +543,96 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         """Current mode (sync/anonymous/async)."""
         return self._mode
 
+    # ═══════════════════════════════════════════════════════════
+    # AUDIT TRAIL & ANALYTICS
+    # ═══════════════════════════════════════════════════════════
+
+    def _save_audit_log(self, query: str, result) -> None:
+        """
+        Save audit log for every agent interaction.
+
+        Logs are saved to ~/.instaharvest_v2/agent_logs/YYYY-MM-DD_HHMMSS_NNN.json
+        Contains: query, answer, tools called, duration, steps, errors.
+        """
+        if not self._audit_enabled:
+            return
+
+        try:
+            os.makedirs(self._audit_dir, exist_ok=True)
+
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+            log_file = os.path.join(
+                self._audit_dir,
+                f"{timestamp}_{self._total_queries:03d}.json",
+            )
+
+            # Extract tool calls from history
+            tools_called = []
+            for msg in self._history:
+                if msg.get("role") == "tool":
+                    tools_called.append({
+                        "name": msg.get("name", "?"),
+                        "output_preview": str(msg.get("content", ""))[:200],
+                    })
+
+            import json
+            log_data = {
+                "timestamp": timestamp,
+                "query": query[:500],
+                "answer": str(getattr(result, "answer", ""))[:1000],
+                "success": getattr(result, "success", False),
+                "steps": getattr(result, "steps", 0),
+                "duration": round(getattr(result, "duration", 0), 2),
+                "tools_called": tools_called,
+                "tool_stats": dict(self._tool_stats),
+                "provider": self._provider.provider_name,
+                "mode": self._mode,
+                "is_logged_in": self._is_logged_in,
+                "errors": [
+                    k for k, v in self._error_tracker.items() if v > 0
+                ],
+                "files_created": getattr(result, "files_created", []),
+            }
+
+            with open(log_file, "w", encoding="utf-8") as f:
+                json.dump(log_data, f, indent=2, ensure_ascii=False)
+
+            logger.debug(f"Audit log saved: {log_file}")
+
+        except Exception as e:
+            logger.warning(f"Audit log save failed: {e}")
+
+    @property
+    def stats(self) -> Dict[str, Any]:
+        """
+        Agent analytics: tool usage, query count, top tools.
+
+        Usage:
+            agent.stats  →  {
+                'total_queries': 5,
+                'total_tool_calls': 23,
+                'top_tools': [('get_profile', 8), ('write_file', 3)],
+                'unique_tools_used': 7,
+                'provider': 'gemini',
+                'mode': 'sync'
+            }
+        """
+        sorted_tools = sorted(
+            self._tool_stats.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        return {
+            "total_queries": self._total_queries,
+            "total_tool_calls": sum(self._tool_stats.values()),
+            "top_tools": sorted_tools[:10],
+            "unique_tools_used": len(self._tool_stats),
+            "provider": self._provider.provider_name,
+            "mode": self._mode,
+            "is_logged_in": self._is_logged_in,
+        }
+
     def ask(
         self,
         message: str,
@@ -560,6 +663,10 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         # Compress history if too long (token optimization)
         self._compress_history()
 
+        # Clear error tracker for new query
+        self._error_tracker.clear()
+        self._total_queries += 1
+
         # Add user message
         self._history.append({"role": "user", "content": message})
 
@@ -571,6 +678,9 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         if self._verbose and result.success:
             _e = emoji('\u2705', '[OK]')
             safe_print(f"\n{_e} Done ({result.duration:.1f}s, {result.steps} steps)")
+
+        # Save audit log
+        self._save_audit_log(message, result)
 
         return result
 
@@ -625,6 +735,7 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         self._history = [{"role": "system", "content": system_content}]
         self._files_created = []
         self._permissions.reset()
+        self._error_tracker.clear()
         logger.info("🔄 Agent reset")
 
     @property
@@ -635,6 +746,98 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
     @property
     def provider_name(self) -> str:
         return self._provider.provider_name
+
+    # ═══════════════════════════════════════════════════════════
+    # DYNAMIC TOOL FILTERING — TOKEN OPTIMIZATION
+    # ═══════════════════════════════════════════════════════════
+
+    # Tools that require login — filtered out in anonymous mode
+    _LOGIN_REQUIRED_TOOLS = {
+        # Upload
+        "upload_photo", "upload_video", "upload_reel",
+        "upload_story_photo", "upload_story_video", "upload_carousel",
+        "delete_media",
+        # Media interaction
+        "like_media", "comment_media", "save_media", "unsave_media",
+        "get_likers", "get_comment_replies", "reply_to_comment", "edit_caption",
+        # Friendships
+        "follow_user", "block_user", "unblock_user", "mute_user", "unmute_user",
+        "remove_follower", "get_pending_requests", "approve_request",
+        "get_mutual_followers", "get_friendship_status",
+        # Stories
+        "get_stories", "get_story_viewers", "react_to_story",
+        "create_highlight", "get_all_highlights",
+        # DM
+        "send_dm",
+        # Account
+        "get_my_account",
+        # Feed
+        "get_timeline", "get_saved_posts", "get_liked_posts",
+        # Growth
+        "get_non_followers", "get_fans", "unfollow_non_followers",
+        "follow_hashtag_users",
+        # Export (needs followers/following data)
+        "export_followers_csv", "export_following_csv", "export_post_likers",
+        # Notifications
+        "get_notifications", "get_activity_counts",
+        # Explore
+        "explore_feed",
+        # Location (needs session)
+        "search_locations", "get_location_info", "get_nearby_locations",
+        "get_followers", "get_following",
+        # ── Phase 5: Auth & Session ───────────────────────
+        "validate_session", "logout",
+        # ── Phase 5: Insights ─────────────────────────────
+        "get_account_insights", "get_media_insight",
+        "get_business_info", "get_ads_accounts",
+        # ── Phase 5: Audience ─────────────────────────────
+        "find_lookalike_audience", "get_audience_overlap",
+        "get_audience_insights",
+        # ── Phase 5: A/B Testing ──────────────────────────
+        "create_ab_test", "run_ab_test",
+        "get_ab_results", "list_ab_tests",
+        # ── Phase 5: Automation ───────────────────────────
+        "auto_dm_new_followers", "auto_comment_hashtag",
+        "auto_like_feed", "auto_like_hashtag",
+        "auto_watch_stories", "get_action_log",
+        # ── Phase 5: Scheduler ────────────────────────────
+        "schedule_post", "schedule_story", "schedule_reel",
+        "list_scheduled_jobs", "cancel_scheduled_job",
+        # ── Phase 5: Monitor ──────────────────────────────
+        "monitor_account", "unmonitor_account",
+        "monitor_check_now", "get_monitor_events",
+        "get_monitor_stats",
+        # ── Phase 5: Bulk Download ────────────────────────
+        "bulk_download_posts", "bulk_download_stories",
+        "bulk_download_highlights", "bulk_download_everything",
+        # ── Phase 5: Comment Manager ──────────────────────
+        "manage_comments", "auto_reply_comments",
+        "delete_spam_comments", "get_comment_sentiment",
+    }
+
+    def _get_filtered_tools(self) -> List[Dict]:
+        """
+        Dynamically filter tools based on login status.
+
+        Anonymous mode: removes ~45 login-required tools → saves ~3000 tokens
+        Login mode: returns all tools
+        """
+        from .providers.base import instaharvest_v2_TOOLS
+
+        if self._is_logged_in:
+            return instaharvest_v2_TOOLS  # All 110 tools
+
+        # Anonymous — filter out login-required tools
+        filtered = [
+            tool for tool in instaharvest_v2_TOOLS
+            if tool["name"] not in self._LOGIN_REQUIRED_TOOLS
+        ]
+
+        logger.info(
+            f"Tool filter: {len(instaharvest_v2_TOOLS)} → {len(filtered)} "
+            f"(anonymous mode, {len(instaharvest_v2_TOOLS) - len(filtered)} hidden)"
+        )
+        return filtered
 
     # ═══════════════════════════════════════════════════════════
     # HISTORY COMPRESSION — TOKEN OPTIMIZATION
@@ -789,10 +992,11 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
             # Emit: thinking
             _emit({"type": "thinking", "step": step + 1, "message": f"Step {step + 1}: Analyzing..."})
 
-            # Call LLM
+            # Call LLM with filtered tools
             try:
                 response = self._provider.generate(
                     messages=self._history,
+                    tools=self._get_filtered_tools(),
                     temperature=0.1,
                 )
             except Exception as e:
@@ -870,6 +1074,9 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                 # Emit: tool call
                 _emit({"type": "tool_call", "name": tc.name, "arguments": tc.arguments})
 
+                # ── Tool usage analytics ──
+                self._tool_stats[tc.name] = self._tool_stats.get(tc.name, 0) + 1
+
                 tool_result = self._execute_tool(tc, step_callback=step_callback)
 
                 # Add tool result to history
@@ -877,16 +1084,45 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
 
                 # Emit: tool result
                 tool_output = str(tool_result)
+                is_error = tool_output.startswith("Error") or tool_output.startswith("❌")
                 _emit({"type": "tool_result", "name": tc.name, "output": tool_output[:2000],
-                       "success": not tool_output.startswith("Error")})
+                       "success": not is_error})
+
+                # ── Dead loop detection ──
+                if is_error:
+                    error_key = f"{tc.name}:{tool_output[:100]}"
+                    self._error_tracker[error_key] = self._error_tracker.get(error_key, 0) + 1
+
+                    if self._error_tracker[error_key] >= self._max_identical_errors:
+                        # Inject guidance to break the loop
+                        self._history.append({
+                            "role": "user",
+                            "content": (
+                                f"⚠️ SYSTEM: Tool '{tc.name}' failed {self._error_tracker[error_key]} times "
+                                f"with the same error. Try a DIFFERENT approach or tool, "
+                                f"or tell the user what went wrong and stop."
+                            ),
+                        })
+                        logger.warning(
+                            f"Dead loop detected: {tc.name} failed "
+                            f"{self._error_tracker[error_key]}x — injecting guidance"
+                        )
+                        if self._verbose:
+                            print(f"    ⚠️ Dead loop detected — switching strategy")
+                        break  # Break this tool iteration, go back to LLM
+                else:
+                    # Success — clear error tracker for this tool
+                    keys_to_clear = [k for k in self._error_tracker if k.startswith(f"{tc.name}:")]
+                    for k in keys_to_clear:
+                        del self._error_tracker[k]
 
                 # Track code and files
                 if tc.name == "run_instaharvest_v2_code":
                     result.code_executed = tc.arguments.get("code", "")
                     if isinstance(tool_result, ExecutionResult):
                         result.execution_result = tool_result
-                elif tc.name in ("save_to_file", "create_chart"):
-                    filename = tc.arguments.get("filename", "")
+                elif tc.name in ("save_to_file", "create_chart", "write_file"):
+                    filename = tc.arguments.get("filename", tc.arguments.get("path", ""))
                     if filename:
                         result.files_created.append(filename)
                         self._files_created.append(filename)
@@ -977,11 +1213,53 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                 is_logged_in=self._is_logged_in,
                 cache=self._user_cache,
             )
-        # ─── Phase 2 Specialized Tools ───────────────────────────
+        # ─── Phase 2/3/4 Specialized Tools ─────────────────────────
         elif name in (
+            # Phase 2: Social actions (login required)
             "follow_user", "get_followers", "get_following",
             "get_friendship_status", "like_media", "comment_media",
             "get_stories", "send_dm", "get_hashtag_info", "get_my_account",
+            # Phase 3: Public Anonymous (no login)
+            "get_user_id", "is_public", "exists",
+            "get_feed", "get_all_posts", "get_reels",
+            "get_comments", "get_highlights", "get_similar_accounts",
+            "get_post_by_shortcode", "get_post_by_url", "get_media_urls",
+            "get_hashtag_posts", "get_location_posts", "run_diagnostics",
+            # Phase 4: Upload & Content Creation
+            "upload_photo", "upload_video", "upload_reel",
+            "upload_story_photo", "upload_story_video",
+            "upload_carousel", "delete_media",
+            # Phase 4: Advanced Media
+            "get_likers", "save_media", "unsave_media",
+            "get_comment_replies", "reply_to_comment", "edit_caption",
+            # Phase 4: Advanced Friendships
+            "block_user", "unblock_user", "mute_user", "unmute_user",
+            "remove_follower", "get_pending_requests",
+            "approve_request", "get_mutual_followers",
+            # Phase 4: Stories Management
+            "get_story_viewers", "react_to_story",
+            "create_highlight", "get_all_highlights",
+            # Phase 4: Growth
+            "get_non_followers", "get_fans",
+            "unfollow_non_followers", "follow_hashtag_users",
+            # Phase 4: Export & Pipeline
+            "export_followers_csv", "export_following_csv",
+            "export_post_likers", "export_to_json",
+            "save_to_sqlite", "save_to_jsonl",
+            # Phase 4: Location
+            "search_locations", "get_location_info", "get_nearby_locations",
+            # Phase 4: Feed
+            "get_timeline", "get_saved_posts", "get_liked_posts",
+            # Phase 4: Users
+            "get_full_profile", "parse_bio",
+            # Phase 4: Hashtag Research
+            "analyze_hashtag", "suggest_hashtags",
+            # Phase 4: Notifications
+            "get_notifications", "get_activity_counts",
+            # Phase 4: Public Data Analytics
+            "compare_profiles", "engagement_analysis", "build_report",
+            # Phase 4: Advanced Search
+            "search_hashtags", "search_places", "explore_feed",
         ):
             emoji_map = {
                 "follow_user": "👥", "get_followers": "👥",
@@ -989,6 +1267,34 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                 "like_media": "❤️", "comment_media": "💬",
                 "get_stories": "📱", "send_dm": "✉️",
                 "get_hashtag_info": "#️⃣", "get_my_account": "👤",
+                "get_user_id": "🆔", "is_public": "🔓", "exists": "❓",
+                "get_feed": "📰", "get_all_posts": "📸", "get_reels": "🎬",
+                "get_comments": "💬", "get_highlights": "⭐", "get_similar_accounts": "👥",
+                "get_post_by_shortcode": "🔗", "get_post_by_url": "🌐",
+                "get_media_urls": "📎", "get_hashtag_posts": "#️⃣",
+                "get_location_posts": "📍", "run_diagnostics": "🔬",
+                "upload_photo": "📤", "upload_video": "📤", "upload_reel": "📤",
+                "upload_story_photo": "📤", "upload_story_video": "📤",
+                "upload_carousel": "📤", "delete_media": "🗑️",
+                "get_likers": "❤️", "save_media": "🔖", "unsave_media": "🔖",
+                "get_comment_replies": "💬", "reply_to_comment": "💬", "edit_caption": "✏️",
+                "block_user": "🚫", "unblock_user": "✅", "mute_user": "🔇", "unmute_user": "🔊",
+                "remove_follower": "👋", "get_pending_requests": "📩",
+                "approve_request": "✅", "get_mutual_followers": "🤝",
+                "get_story_viewers": "👁", "react_to_story": "😊",
+                "create_highlight": "⭐", "get_all_highlights": "⭐",
+                "get_non_followers": "👻", "get_fans": "🌟",
+                "unfollow_non_followers": "👻", "follow_hashtag_users": "📈",
+                "export_followers_csv": "💾", "export_following_csv": "💾",
+                "export_post_likers": "💾", "export_to_json": "💾",
+                "save_to_sqlite": "🗄️", "save_to_jsonl": "📄",
+                "search_locations": "📍", "get_location_info": "📍", "get_nearby_locations": "📍",
+                "get_timeline": "📰", "get_saved_posts": "🔖", "get_liked_posts": "❤️",
+                "get_full_profile": "👤", "parse_bio": "📋",
+                "analyze_hashtag": "#️⃣", "suggest_hashtags": "💡",
+                "get_notifications": "🔔", "get_activity_counts": "📊",
+                "compare_profiles": "📊", "engagement_analysis": "📈", "build_report": "📋",
+                "search_hashtags": "#️⃣", "search_places": "📍", "explore_feed": "🔍",
             }
             if self._verbose:
                 print(f"    {emoji_map.get(name, '🔧')} {name}({', '.join(f'{k}={v!r}' for k, v in list(args.items())[:2])})")
@@ -1005,8 +1311,23 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         elif name in TOOL_HANDLERS:
             handler = TOOL_HANDLERS[name]
 
+            # System tools emoji routing
+            _sys_emoji = {
+                "write_file": "📝", "append_to_file": "📝",
+                "copy_file": "📋", "move_file": "📦",
+                "delete_file": "🗑️", "file_exists": "❓",
+                "get_file_info": "ℹ️",
+                "get_working_directory": "📂", "create_directory": "📁",
+                "list_directory": "📂", "find_files": "🔍",
+                "save_session_data": "💾", "load_session_data": "💾",
+                "list_sessions": "💾",
+                "get_env_var": "🔧", "set_working_directory": "📂",
+                "get_system_info": "🖥️",
+            }
+
             if self._verbose:
-                print(f"    🔧 {name}")
+                e = _sys_emoji.get(name, "🔧")
+                print(f"    {e} {name}")
 
             # Some tools need the ig instance
             if name == "download_media":
@@ -1026,7 +1347,14 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                 return handler(args)
 
             else:
-                return handler(args)
+                # Universal dispatch — pass ig, login status, and cache
+                # Handlers use **kw to accept only what they need
+                return handler(
+                    args,
+                    ig=self._ig,
+                    is_logged_in=self._is_logged_in,
+                    cache=self._user_cache,
+                )
 
         else:
             return f"Unknown tool: {name}"

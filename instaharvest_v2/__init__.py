@@ -64,6 +64,7 @@ from .api.audience import AudienceAPI
 from .api.comment_manager import CommentManagerAPI
 from .api.ab_test import ABTestAPI
 from .api.public_data import PublicDataAPI
+from .diagnostics import run_diagnostics, get_registered_methods, MethodResult
 from .strategy import ProfileStrategy, PostsStrategy
 from .parsers import (
     parse_count,
@@ -96,7 +97,7 @@ def __getattr__(name):
         return AgentCoordinator
     raise AttributeError(f"module 'instaharvest_v2' has no attribute {name!r}")
 
-__version__ = "1.0.23"
+__version__ = "1.1.27"
 __all__ = [
     "Instagram",
     "AsyncInstagram",
@@ -195,5 +196,9 @@ __all__ = [
     "parse_embed_html",
     "parse_mobile_feed_item",
     "parse_graphql_docid_media",
+    # Diagnostics
+    "run_diagnostics",
+    "get_registered_methods",
+    "MethodResult",
 ]
 

@@ -115,52 +115,172 @@ def parse_meta_tags(html: str) -> Dict:
 
 
 def parse_graphql_user(user: Dict) -> Dict:
-    """Parse GraphQL user object into clean format."""
+    """Parse GraphQL user object into clean format with ALL available fields.
+
+    Extracts every useful field from web_profile_info response:
+    - Basic profile (username, bio, followers, etc.)
+    - Business info (email, phone, address, category)
+    - Content flags (clips, guides, IGTV, channel)
+    - Related profiles (edge_related_profiles)
+    - Recent posts with full data (tags, mentions, carousel)
+    """
     edges_media = user.get("edge_owner_to_timeline_media", {})
+
+    # Related profiles
+    related_profiles = []
+    for edge in user.get("edge_related_profiles", {}).get("edges", []):
+        node = edge.get("node", {})
+        related_profiles.append({
+            "user_id": node.get("id"),
+            "username": node.get("username"),
+            "full_name": node.get("full_name"),
+            "is_verified": node.get("is_verified", False),
+            "is_private": node.get("is_private", False),
+            "profile_pic_url": node.get("profile_pic_url"),
+        })
+
+    # Business address parsing
+    business_address = None
+    addr_json = user.get("business_address_json")
+    if addr_json:
+        import json as _json
+        try:
+            if isinstance(addr_json, str):
+                business_address = _json.loads(addr_json)
+            else:
+                business_address = addr_json
+        except (ValueError, TypeError):
+            business_address = addr_json
+
     return {
+        # Core identity
         "user_id": user.get("id"),
+        "fbid": user.get("fbid"),
         "username": user.get("username"),
         "full_name": user.get("full_name"),
         "biography": user.get("biography"),
         "profile_pic_url": user.get("profile_pic_url"),
         "profile_pic_url_hd": user.get("profile_pic_url_hd"),
+        "external_url": user.get("external_url"),
+        # Status flags
         "is_private": user.get("is_private", False),
         "is_verified": user.get("is_verified", False),
         "is_business": user.get("is_business_account", False),
-        "category": user.get("category_name", ""),
-        "external_url": user.get("external_url"),
+        "is_professional_account": user.get("is_professional_account", False),
+        "is_joined_recently": user.get("is_joined_recently", False),
+        # Counts
         "followers": user.get("edge_followed_by", {}).get("count"),
         "following": user.get("edge_follow", {}).get("count"),
         "posts_count": edges_media.get("count"),
+        "highlight_count": user.get("highlight_reel_count", 0),
+        "igtv_count": user.get("edge_felix_video_timeline", {}).get("count", 0),
+        "mutual_followers": user.get("edge_mutual_followed_by", {}).get("count", 0),
+        # Category / business
+        "category": user.get("category_name", ""),
+        "category_enum": user.get("category_enum", ""),
+        "overall_category": user.get("overall_category_name", ""),
+        "business_email": user.get("business_email"),
+        "business_phone": user.get("business_phone_number"),
+        "business_address": business_address,
+        "business_contact_method": user.get("business_contact_method"),
+        # Content
         "bio_links": user.get("bio_links", []),
         "pronouns": user.get("pronouns", []),
-        "highlight_count": user.get("highlight_reel_count", 0),
+        "has_clips": user.get("has_clips", False),
+        "has_guides": user.get("has_guides", False),
+        "has_channel": user.get("has_channel", False),
+        "show_threads_badge": user.get("show_text_post_app_badge", False),
+        # Related profiles
+        "related_profiles": related_profiles,
+        # Posts
         "recent_posts": parse_timeline_edges(edges_media.get("edges", [])),
     }
 
 
 def parse_timeline_edges(edges: List[Dict]) -> List[Dict]:
-    """Parse GraphQL timeline edges into post list (with carousel support)."""
+    """Parse GraphQL timeline edges into post list with full data extraction.
+
+    Extracts ALL available data from a single web_profile_info response:
+    - Post metadata (shortcode, type, timestamps, likes, comments)
+    - Carousel media (all slide URLs)
+    - Tagged users (edge_media_to_tagged_user)
+    - Caption @mentions
+    - Post URL
+    - Video data (url, views)
+    """
     posts = []
     for edge in edges:
         node = edge.get("node", {})
         caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
         caption = caption_edges[0]["node"]["text"] if caption_edges else ""
 
+        shortcode = node.get("shortcode")
+        typename = node.get("__typename", "")
+
+        # Post type string
+        if typename == "GraphSidecar":
+            post_type = "carousel"
+        elif typename == "GraphVideo" or node.get("is_video"):
+            post_type = "video"
+        else:
+            post_type = "image"
+
         post = {
-            "shortcode": node.get("shortcode"),
-            "media_type": node.get("__typename"),
+            "shortcode": shortcode,
+            "post_url": f"https://www.instagram.com/p/{shortcode}/" if shortcode else "",
+            "media_type": typename,
+            "post_type": post_type,
             "display_url": node.get("display_url"),
             "thumbnail_url": node.get("thumbnail_src"),
             "is_video": node.get("is_video", False),
-            "likes": node.get("edge_liked_by", {}).get("count", 0),
+            "likes": node.get("edge_liked_by", {}).get("count", 0)
+                     or node.get("edge_media_preview_like", {}).get("count", 0),
             "comments": node.get("edge_media_to_comment", {}).get("count", 0),
             "caption": caption,
             "taken_at": node.get("taken_at_timestamp"),
             "pk": node.get("id"),
             "video_url": node.get("video_url"),
             "video_views": node.get("video_view_count"),
+            "dimensions": node.get("dimensions"),
+            "accessibility_caption": node.get("accessibility_caption", ""),
         }
+
+        # Tagged users (edge_media_to_tagged_user) — available in web_profile_info!
+        tagged_edges = node.get("edge_media_to_tagged_user", {}).get("edges", [])
+        tagged_users = []
+        for te in tagged_edges:
+            tag_user = te.get("node", {}).get("user", {})
+            tag_username = tag_user.get("username", "")
+            if tag_username:
+                tagged_users.append(tag_username.lower())
+        post["tagged_users"] = tagged_users
+
+        # Caption @mentions
+        mentions = re.findall(r'@([a-zA-Z0-9_.]+)', caption) if caption else []
+        post["mentions"] = [m.lower() for m in mentions]
+
+        # Coauthor producers
+        coauthors = node.get("coauthor_producers", []) or []
+        if coauthors:
+            post["coauthor_producers"] = [
+                {"username": co.get("username", ""), "user_id": co.get("id")}
+                for co in coauthors
+            ]
+
+        # Pinned post detection
+        pinned = node.get("pinned_for_users", []) or []
+        if pinned:
+            post["is_pinned"] = True
+
+        # Location
+        location = node.get("location")
+        if location and isinstance(location, dict):
+            post["location"] = {
+                "id": location.get("id"),
+                "name": location.get("name"),
+                "slug": location.get("slug"),
+                "has_public_page": location.get("has_public_page"),
+            }
 
         # Carousel (GraphSidecar)
         sidecar = node.get("edge_sidecar_to_children", {})
@@ -168,18 +288,28 @@ def parse_timeline_edges(edges: List[Dict]) -> List[Dict]:
             children = []
             for child_edge in sidecar.get("edges", []):
                 child = child_edge.get("node", {})
-                children.append({
+                child_data = {
                     "pk": child.get("id"),
                     "shortcode": child.get("shortcode"),
                     "display_url": child.get("display_url"),
                     "is_video": child.get("is_video", False),
                     "video_url": child.get("video_url"),
                     "media_type": child.get("__typename"),
+                    "accessibility_caption": child.get("accessibility_caption", ""),
                     "display_resources": [
                         {"url": r.get("src"), "width": r.get("config_width"), "height": r.get("config_height")}
                         for r in child.get("display_resources", [])
                     ],
-                })
+                }
+                # Carousel child usertags
+                child_tagged = child.get("edge_media_to_tagged_user", {}).get("edges", [])
+                if child_tagged:
+                    child_data["tagged_users"] = [
+                        ct.get("node", {}).get("user", {}).get("username", "").lower()
+                        for ct in child_tagged
+                        if ct.get("node", {}).get("user", {}).get("username")
+                    ]
+                children.append(child_data)
             post["carousel_media"] = children
             post["carousel_count"] = len(children)
 
@@ -203,9 +333,23 @@ def parse_embed_media(media: Dict) -> Dict:
             "height": res.get("config_height"),
         })
 
+    shortcode = media.get("shortcode")
+
+    # Tagged users
+    tagged_edges = media.get("edge_media_to_tagged_user", {}).get("edges", [])
+    tagged_users = [
+        te.get("node", {}).get("user", {}).get("username", "").lower()
+        for te in tagged_edges
+        if te.get("node", {}).get("user", {}).get("username")
+    ]
+
+    # Caption @mentions
+    mentions = [m.lower() for m in re.findall(r'@([a-zA-Z0-9_.]+)', caption)] if caption else []
+
     return {
         "pk": media.get("id"),
-        "shortcode": media.get("shortcode"),
+        "shortcode": shortcode,
+        "post_url": f"https://www.instagram.com/p/{shortcode}/" if shortcode else "",
         "media_type": media.get("__typename"),
         "is_video": media.get("is_video", False),
         "caption": caption,
@@ -219,6 +363,8 @@ def parse_embed_media(media: Dict) -> Dict:
             "is_verified": owner.get("is_verified"),
             "profile_pic_url": owner.get("profile_pic_url"),
         },
+        "tagged_users": tagged_users,
+        "mentions": mentions,
         "images": images,
         "video_url": media.get("video_url"),
         "video_views": media.get("video_view_count"),
@@ -275,10 +421,16 @@ def parse_mobile_feed_item(item: Dict) -> Dict:
     media_type_map = {1: "GraphImage", 2: "GraphVideo", 8: "GraphSidecar"}
     raw_type = item.get("media_type", 1)
 
+    shortcode = item.get("code")
+
+    # Caption @mentions
+    mentions = [m.lower() for m in re.findall(r'@([a-zA-Z0-9_.]+)', caption_text)] if caption_text else []
+
     result = {
         "pk": str(item.get("pk", "")),
         "id": item.get("id"),
-        "shortcode": item.get("code"),
+        "shortcode": shortcode,
+        "post_url": f"https://www.instagram.com/p/{shortcode}/" if shortcode else "",
         "media_type": media_type_map.get(raw_type, f"type_{raw_type}"),
         "media_type_raw": raw_type,
         "display_url": image_url,
@@ -286,7 +438,9 @@ def parse_mobile_feed_item(item: Dict) -> Dict:
         "likes": item.get("like_count", 0),
         "comments": item.get("comment_count", 0),
         "caption": caption_text,
+        "mentions": mentions,
         "taken_at": item.get("taken_at"),
+        "accessibility_caption": item.get("accessibility_caption", ""),
     }
 
     # Video data
@@ -363,6 +517,7 @@ def parse_graphql_docid_media(media: Dict) -> Dict:
         "_strategy": "graphql_docid",
         "pk": media.get("id"),
         "shortcode": media.get("shortcode"),
+        "post_url": f"https://www.instagram.com/p/{media.get('shortcode')}/" if media.get("shortcode") else "",
         "media_type": media.get("__typename"),
         "product_type": media.get("product_type"),
         "is_video": media.get("is_video", False),
@@ -402,6 +557,21 @@ def parse_graphql_docid_media(media: Dict) -> Dict:
         "location": media.get("location"),
         "is_paid_partnership": media.get("is_paid_partnership"),
     }
+
+    # Tagged users
+    tagged_edges = media.get("edge_media_to_tagged_user", {}).get("edges", [])
+    if tagged_edges:
+        result["tagged_users"] = [
+            te.get("node", {}).get("user", {}).get("username", "").lower()
+            for te in tagged_edges
+            if te.get("node", {}).get("user", {}).get("username")
+        ]
+
+    # Caption @mentions
+    if caption:
+        cap_mentions = [m.lower() for m in re.findall(r'@([a-zA-Z0-9_.]+)', caption)]
+        if cap_mentions:
+            result["mentions"] = cap_mentions
 
     # Music info for reels
     music = media.get("clips_music_attribution_info")

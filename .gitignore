@@ -59,6 +59,9 @@ littlebluedoor_posts.json
 # Lead generation (contains large data & credentials)
 lead/
 
+# Personal test scripts
+my_test/
+
 # Generated MkDocs site
 site/
 

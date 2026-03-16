@@ -7,15 +7,16 @@
     <a href="https://pypi.org/project/instaharvest-v2/"><img src="https://img.shields.io/pypi/v/instaharvest-v2?color=blue" alt="PyPI"></a>
     <a href="https://pypi.org/project/instaharvest-v2/"><img src="https://img.shields.io/pypi/pyversions/instaharvest-v2" alt="Python"></a>
     <a href="https://github.com/mpython77/instaharvest_v2/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mpython77/instaharvest_v2" alt="License"></a>
-    <img src="https://img.shields.io/badge/modules-32+32-green" alt="Modules">
+    <img src="https://img.shields.io/badge/modules-31+31-green" alt="Modules">
     <img src="https://img.shields.io/badge/async-full_parity-brightgreen" alt="Async">
-    <img src="https://img.shields.io/badge/tests-489_passed-success" alt="Tests">
-    <img src="https://img.shields.io/badge/coverage-35%25-green" alt="Coverage">
+    <img src="https://img.shields.io/badge/agent_tools-161-orange" alt="Agent Tools">
+    <img src="https://img.shields.io/badge/tests-6242_passed-success" alt="Tests">
+    <img src="https://img.shields.io/badge/coverage-20%25-yellow" alt="Coverage">
     <a href="https://mpython77.github.io/instaharvest_v2/"><img src="https://img.shields.io/badge/docs-online-blue?logo=readthedocs" alt="Docs"></a>
   </p>
 </p>
 
-> 32 sync + 32 async modules • 230+ functions • Pydantic models • AI Agent • CI/CD • 489 tests passed
+> 31 sync + 31 async modules • 315+ functions • 161 agent tools • Pydantic models • AI Agent • CI/CD • 6242 tests passed
 >
 > 📖 **Documentation:** [mpython77.github.io/instaharvest_v2](https://mpython77.github.io/instaharvest_v2/)
 
@@ -94,9 +95,34 @@ ig = Instagram(
 ### Anonymous (no login)
 
 ```python
-ig = Instagram.anonymous()
+ig = Instagram.anonymous(unlimited=True)
+ig.add_proxy("http://user:pass@host:port")  # optional
+
 profile = ig.public.get_profile("cristiano")
 posts = ig.public.get_posts("cristiano", max_count=12)
+reels = ig.public.get_reels("cristiano", max_count=10)
+comments = ig.public.get_comments("ABC123", max_count=20)
+similar = ig.public.get_similar_accounts("cristiano")
+hashtag = ig.public.get_hashtag_posts("fashion", max_count=10)
+location = ig.public.get_location_posts("213385402", max_count=10)
+```
+
+### 🔬 API Diagnostics
+
+```python
+from instaharvest_v2 import Instagram, run_diagnostics
+
+ig = Instagram.anonymous(unlimited=True)
+ig.add_proxy("http://proxy...")
+results = run_diagnostics(ig, username="cristiano")  # tests all 41 methods
+```
+
+**CLI:**
+
+```bash
+python -m instaharvest_v2 diagnose cristiano --proxy http://...
+python -m instaharvest_v2 diagnose cristiano --layer public --sync-only
+python -m instaharvest_v2 diagnose cristiano -o ./results/  # JSON output
 ```
 
 ### 🎬 Reel / Post Scraping (no login, no cookies!)
@@ -117,7 +143,7 @@ post = ig.public.get_post_by_url("https://instagram.com/reel/ABC123/")
 # Returns: video_url, display_url, likes, views, comments, audio, owner, carousel_media
 ```
 
-### 🤖 AI Agent
+### 🤖 AI Agent (161 built-in tools)
 
 ```python
 from instaharvest_v2 import Instagram
@@ -126,7 +152,7 @@ from instaharvest_v2.agent import InstaAgent, Permission
 ig = Instagram.from_env(".env")
 agent = InstaAgent(
     ig=ig,
-    provider="gemini",        # 13 AI providers
+    provider="gemini",        # 13+ AI providers
     permission=Permission.FULL_ACCESS,
     memory=True,
 )
@@ -134,6 +160,9 @@ agent = InstaAgent(
 agent.ask("Get @cristiano's last 10 posts and save to CSV")
 agent.ask("Compare @nike and @adidas engagement rates")
 agent.ask("Find the best posting time for my account")
+agent.ask("Show similar accounts to @nike")
+agent.ask("Get comments on post ABC123")
+agent.ask("Run API diagnostics for @cristiano")
 ```
 
 ## .env Format
@@ -287,12 +316,48 @@ ig.auth.validate_session()
 ig.auth.logout()
 ```
 
+### 🌐 Public Anonymous API (23 methods, no login!)
+
+```python
+ig = Instagram.anonymous(unlimited=True)
+
+# Profile
+ig.public.get_profile("cristiano")      # Full profile data (35+ fields)
+ig.public.get_user_id("cristiano")      # → 173560420
+ig.public.get_profile_pic_url("cristiano")  # HD profile pic URL
+ig.public.is_public("cristiano")        # → True
+ig.public.exists("cristiano")           # → True
+ig.public.search("cristiano")           # Search users
+ig.public.get_similar_accounts("cristiano")  # Similar accounts
+
+# Content
+ig.public.get_posts("cristiano", max_count=12)      # Recent posts
+ig.public.get_all_posts("cristiano", max_count=50)   # All posts
+ig.public.get_feed(user_id, max_count=12)            # Feed by user_id
+ig.public.get_reels("cristiano", max_count=10)       # Reels
+ig.public.get_comments("ABC123", max_count=20)       # Post comments
+ig.public.get_highlights("cristiano")                 # Story highlights
+ig.public.get_post_by_shortcode("ABC123")            # Single post
+ig.public.get_post_by_url("https://instagram.com/p/ABC123/")
+ig.public.get_media(media_id)                         # Media by ID
+ig.public.get_media_urls("ABC123")                    # Download URLs
+
+# Hashtag & Location
+ig.public.get_hashtag_posts("fashion", max_count=10)
+ig.public.get_hashtag_posts_v2("fashion", max_count=10)
+ig.public.get_location_posts("213385402", max_count=10)
+
+# Bulk operations
+ig.public.bulk_profiles(["nike", "adidas"], workers=4)
+ig.public.bulk_feeds([user_id1, user_id2], max_count=12, workers=4)
+```
+
 ### More Core Modules
 
 ```python
 ig.hashtags.get_info("fashion")        # Hashtag info
-ig.insights.get_account_insights()     # Analytics
-ig.notifications.get_activity_feed()   # Notifications
+ig.insights.get_account_summary()      # Analytics
+ig.notifications.get_activity()        # Notifications
 ig.graphql.get_followers(user_pk)      # GraphQL queries
 ig.location.search("New York")         # Location search
 ig.collections.get_list()              # Saved collections
@@ -529,12 +594,13 @@ print(user.some_new_field)    # works!
 | 🔐 **Login** | NaCl encrypted password, 2FA, checkpoint handling |
 | 💾 **Session persistence** | Save/load sessions, no re-login needed |
 | 🧩 **Challenge handler** | Auto-resolve email/SMS/consent challenges |
-| ⚡ **Full async parity** | 32 sync + 32 async modules — complete feature match |
+| ⚡ **Full async parity** | 31 sync + 31 async modules — complete feature match |
 | 📦 **Pydantic models** | Typed returns, dict-like access, backward compatible |
-| 🤖 **AI Agent** | 13 providers, natural language control, memory, webhooks |
-| 📊 **12 Advanced tools** | Analytics, Export, Growth, Automation, Monitor, Pipeline, etc. |
+| 🤖 **AI Agent** | 13+ providers, 161 tools, natural language control, memory, webhooks |
+| 📊 **Advanced tools** | Analytics, Export, Growth, Automation, Monitor, Pipeline, Diagnostics |
+| 🔬 **Diagnostics** | 41-method health check (sync+async), CLI support, JSON output |
 | ✅ **CI/CD** | GitHub Actions — lint, test (3 Python versions), security, build |
-| 🧪 **489 tests** | 35% coverage, pytest-cov, comprehensive unit & integration tests |
+| 🧪 **6242 tests** | pytest-cov, comprehensive unit & integration tests |
 
 ## Speed Modes (Async)
 
@@ -563,8 +629,8 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 
 **Current status:**
 
-- ✅ 489 tests passed
-- 📊 35.3% code coverage
+- ✅ 6242 tests passed (43 skipped)
+- 📊 ~20% code coverage
 
 ---
 
@@ -578,6 +644,7 @@ instaharvest_v2/
 ├── async_client.py        # Async HTTP client
 ├── anon_client.py         # Anonymous scraping client (sync)
 ├── async_anon_client.py   # Anonymous scraping client (async)
+├── diagnostics.py         # API diagnostics (41 methods, sync+async)
 ├── parsers.py             # Shared parser functions (8 standalone)
 ├── challenge.py           # Challenge auto-resolver
 ├── anti_detect.py         # Anti-detection system
@@ -596,7 +663,7 @@ instaharvest_v2/
 │   ├── location.py        # Location
 │   ├── notification.py    # Notification models
 │   └── public_data.py     # PublicProfile, PublicPost
-├── api/                   # API modules (33 sync + 33 async)
+├── api/                   # API modules (31 sync + 31 async)
 │   ├── users.py           # User profiles
 │   ├── media.py           # Post interactions
 │   ├── feed.py            # User feeds
@@ -625,8 +692,19 @@ instaharvest_v2/
 │   └── async_*.py         # All 33 async mirrors
 ├── agent/                 # AI Agent system
 │   ├── core.py            # InstaAgent main class
-│   ├── providers/         # AI providers (Gemini, OpenAI, Claude, etc.)
-│   ├── tools.py           # 10 built-in tools
+│   ├── providers/         # AI providers (13: Gemini, OpenAI, Claude, etc.)
+│   ├── tools/             # 161 built-in tools
+│   │   ├── instagram_tools.py  # Instagram tools (profile, posts, reels, comments)
+│   │   ├── media_tools.py      # Media & social tools (download, follow, like)
+│   │   ├── file_tools.py       # File I/O tools
+│   │   ├── system_tools.py     # File management, sessions, system info
+│   │   ├── analysis_tools.py   # Data analysis & charts
+│   │   ├── network_tools.py    # HTTP, search, DM
+│   │   ├── auth_tools.py       # Login, validate, logout
+│   │   ├── analytics_tools.py  # Analytics, insights, audience, A/B test
+│   │   ├── automation_tools.py # Automation, scheduler, monitor
+│   │   ├── pipeline_tools.py   # Pipeline, bulk download, AI suggest
+│   │   └── utility_tools.py    # JSON, CSV, calculate, merge, download
 │   ├── memory.py          # Conversation memory
 │   ├── templates.py       # 10 task templates
 │   ├── tui.py             # Terminal UI (Rich)
@@ -634,7 +712,7 @@ instaharvest_v2/
 │   ├── webhook.py         # Notifications (Telegram, Discord)
 │   ├── cost_tracker.py    # Token usage & pricing
 │   └── vision.py          # Multimodal image analysis
-tests/                     # 489 tests
+tests/                     # 6242 tests
 docs/                      # MkDocs documentation
 .github/workflows/         # CI/CD pipeline
 ```

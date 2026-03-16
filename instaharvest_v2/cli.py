@@ -125,6 +125,18 @@ def create_parser() -> argparse.ArgumentParser:
     p_jsonl.add_argument("username", help="Target username")
     p_jsonl.add_argument("-o", "--output", default="data.jsonl", help="Output file")
 
+    # ─── diagnose ─────────────────────────────────
+    p_diag = subparsers.add_parser("diagnose", help="Run anonymous API diagnostics")
+    p_diag.add_argument("username", help="Target username")
+    p_diag.add_argument("--proxy", default=None, help="Proxy URL")
+    p_diag.add_argument("--hashtag", default="fashion", help="Test hashtag")
+    p_diag.add_argument("--location-id", default="213385402", help="Test location ID")
+    p_diag.add_argument("--method", default=None, help="Filter by method name")
+    p_diag.add_argument("--layer", default=None, choices=["public", "low"], help="Filter by layer")
+    p_diag.add_argument("--sync-only", action="store_true", help="Only sync tests")
+    p_diag.add_argument("--async-only", action="store_true", help="Only async tests")
+    p_diag.add_argument("-o", "--output", default=None, help="Output directory for JSON")
+
     return parser
 
 
@@ -157,6 +169,34 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(0)
+
+    # Diagnose uses anonymous mode (no .env needed)
+    if args.command == "diagnose":
+        from .instagram import Instagram
+        from .diagnostics import run_diagnostics
+
+        ig = Instagram.anonymous(unlimited=True)
+        if args.proxy:
+            ig.add_proxy(args.proxy)
+        try:
+            run_diagnostics(
+                ig,
+                username=args.username,
+                hashtag=args.hashtag,
+                location_id=args.location_id,
+                method_filter=args.method,
+                layer_filter=args.layer,
+                sync_only=args.sync_only,
+                async_only=args.async_only,
+                output_dir=args.output,
+            )
+        except Exception as e:
+            print(f"\n❌ Error: {e}", file=sys.stderr)
+            if args.debug:
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
+        return
 
     ig = get_ig(args.env, args.debug)
 

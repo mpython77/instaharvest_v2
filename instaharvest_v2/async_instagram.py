@@ -276,13 +276,28 @@ class AsyncInstagram:
         **kwargs,
     ) -> "AsyncInstagram":
         """Create async client from saved session file."""
+        import json, os
         ig = cls(
             session_file=filepath,
             debug=debug,
             debug_log_file=debug_log_file,
             **kwargs,
         )
-        ig.load_session(filepath)
+        # Load session synchronously (load_session is async, can't call here)
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                data = json.load(f)
+            ig._session_mgr.add_session(
+                session_id=data["session_id"],
+                csrf_token=data["csrf_token"],
+                ds_user_id=data.get("ds_user_id", data.get("user_id", "")),
+                mid=data.get("mid", ""),
+                ig_did=data.get("ig_did", ""),
+                datr=data.get("datr", ""),
+                user_agent=data.get("user_agent", ""),
+                ig_www_claim=data.get("ig_www_claim", ""),
+                rur=data.get("rur", ""),
+            )
         return ig
 
     @classmethod

@@ -2,11 +2,13 @@
 Instagram API Exception Classes
 """
 
+from typing import Optional
+
 
 class InstagramError(Exception):
     """Base Instagram error class"""
 
-    def __init__(self, message: str = "", status_code: int = 0, response: dict = None):
+    def __init__(self, message: str = "", status_code: int = 0, response: Optional[dict] = None):
         self.message = message
         self.status_code = status_code
         self.response = response or {}

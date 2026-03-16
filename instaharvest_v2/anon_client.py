@@ -136,6 +136,7 @@ class AnonClient:
         strategy: str,
         headers: Optional[Dict] = None,
         params: Optional[Dict] = None,
+        post_data: Optional[Dict] = None,
         parse_json: bool = True,
         timeout: int = 15,
     ) -> Any:
@@ -147,19 +148,24 @@ class AnonClient:
         """
         identity = self._anti_detect.get_identity()
 
-        # Build headers
+        # Build headers — defaults mimic browser navigation
+        # Callers like get_web_api() override sec-fetch-* for API/XHR pattern
         req_headers = {
             "user-agent": identity.user_agent,
             "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "accept-language": identity.accept_language,
             "accept-encoding": "gzip, deflate, br",
             "cache-control": "no-cache",
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "none",
-            "sec-fetch-user": "?1",
-            "upgrade-insecure-requests": "1",
         }
+
+        # sec-fetch-* headers — set navigation defaults, callers can override
+        if not headers or "sec-fetch-dest" not in headers:
+            req_headers["sec-fetch-dest"] = "document"
+            req_headers["sec-fetch-mode"] = "navigate"
+            req_headers["sec-fetch-site"] = "none"
+            req_headers["sec-fetch-user"] = "?1"
+            req_headers["upgrade-insecure-requests"] = "1"
+
         if identity.sec_ch_ua:
             req_headers["sec-ch-ua"] = identity.sec_ch_ua
             req_headers["sec-ch-ua-mobile"] = identity.sec_ch_ua_mobile
@@ -195,14 +201,25 @@ class AnonClient:
         if proxy:
             kwargs["proxies"] = {"https": proxy, "http": proxy}
 
+        if post_data:
+            kwargs["data"] = post_data
+
         last_error = None
         for attempt in range(MAX_RETRIES + 1):
             try:
-                response = curl_requests.get(**kwargs)
+                if post_data:
+                    response = curl_requests.post(**kwargs)
+                else:
+                    response = curl_requests.get(**kwargs)
                 self._request_count += 1
 
                 # Report proxy success with response time
-                elapsed = response.elapsed if hasattr(response, 'elapsed') else 0.0
+                raw_elapsed = response.elapsed if hasattr(response, 'elapsed') else 0.0
+                # curl_cffi returns timedelta, convert to float seconds
+                if hasattr(raw_elapsed, 'total_seconds'):
+                    elapsed = raw_elapsed.total_seconds()
+                else:
+                    elapsed = float(raw_elapsed) if raw_elapsed else 0.0
                 if proxy_info:
                     self._proxy_mgr.report_success(proxy_info, elapsed)
 
@@ -740,7 +757,7 @@ class AnonClient:
             "x-ig-app-id": "936619743392459",  # Instagram Android app ID
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-site",
+            "sec-fetch-site": "cross-site",
             "referer": "https://www.instagram.com/",
         }
 
@@ -749,6 +766,32 @@ class AnonClient:
                 url, "mobile_api",
                 headers=extra_headers,
                 params=params,
+                parse_json=True,
+            )
+        except StrategyFailed:
+            return None
+
+    def post_mobile_api(self, endpoint: str, data: Optional[Dict] = None) -> Optional[Dict]:
+        """
+        POST request to mobile API (i.instagram.com).
+        Some endpoints (e.g. /clips/user/) require POST.
+        """
+        url = f"{MOBILE_API_BASE}{endpoint}"
+        extra_headers = {
+            "accept": "*/*",
+            "x-ig-app-id": "936619743392459",
+            "content-type": "application/x-www-form-urlencoded",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "referer": "https://www.instagram.com/",
+        }
+
+        try:
+            return self._request(
+                url, "mobile_api",
+                headers=extra_headers,
+                post_data=data,
                 parse_json=True,
             )
         except StrategyFailed:
@@ -831,17 +874,19 @@ class AnonClient:
     def get_web_api(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
         Web API request without cookies.
-        Some endpoints return limited data without authentication.
+        Uses www.instagram.com — most /api/v1/ endpoints only work here.
+        sec-fetch-* set for XHR pattern (not navigation).
         """
         url = f"https://www.instagram.com/api/v1{endpoint}"
         extra_headers = {
             "accept": "*/*",
             "x-ig-app-id": IG_APP_ID,
             "x-requested-with": "XMLHttpRequest",
+            "referer": "https://www.instagram.com/",
+            # Override _request() navigation defaults with API-appropriate values
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
-            "referer": "https://www.instagram.com/",
         }
 
         try:
@@ -903,44 +948,15 @@ class AnonClient:
     def _get_web_profile_parsed(self, username: str) -> Optional[Dict]:
         """
         Get profile via web API and parse into standardized format.
-        Returns the richest data (50+ fields → parsed to 20+ standard fields).
+        Returns the richest data — all fields matching parse_graphql_user output.
         """
         raw = self.get_web_profile(username)
         if not raw or not isinstance(raw, dict):
             return None
 
-        # Parse raw web_profile_info response into clean format
-        edges_media = raw.get("edge_owner_to_timeline_media", {})
-        bio_links = raw.get("bio_links", [])
-
-        profile = {
-            "user_id": raw.get("id"),
-            "username": raw.get("username"),
-            "full_name": raw.get("full_name"),
-            "biography": raw.get("biography", ""),
-            "profile_pic_url": raw.get("profile_pic_url"),
-            "profile_pic_url_hd": raw.get("profile_pic_url_hd", raw.get("profile_pic_url")),
-            "is_private": raw.get("is_private", False),
-            "is_verified": raw.get("is_verified", False),
-            "is_business": raw.get("is_business_account", False),
-            "category": raw.get("category_name", raw.get("business_category_name", "")),
-            "external_url": raw.get("external_url"),
-            "followers": raw.get("edge_followed_by", {}).get("count", 0),
-            "following": raw.get("edge_follow", {}).get("count", 0),
-            "posts_count": edges_media.get("count", 0),
-            "bio_links": bio_links if isinstance(bio_links, list) else [],
-            "pronouns": raw.get("pronouns", []),
-            "highlight_count": raw.get("highlight_reel_count", 0),
-            "recent_posts": self._parse_timeline_edges(edges_media.get("edges", [])),
-            # Extra fields from web API
-            "has_clips": raw.get("has_clips", False),
-            "has_guides": raw.get("has_guides", False),
-            "mutual_followers": raw.get("edge_mutual_followed_by", {}).get("count", 0),
-            "business_email": raw.get("business_email"),
-            "business_phone": raw.get("business_phone_number"),
-            "business_address": raw.get("business_address_json"),
-        }
-        return profile
+        # Use parse_graphql_user for consistent output across all strategies
+        from .parsers import parse_graphql_user
+        return parse_graphql_user(raw)
 
     def get_post_chain(self, shortcode: str) -> Optional[Dict]:
         """
@@ -1030,7 +1046,7 @@ class AnonClient:
         }
         params = {"query": query, "context": context}
         try:
-            data = self._request(url, "web_api", headers=headers, params=params)
+            data = self._request(url, "web_api", headers=headers, params=params, parse_json=True)
             if data and isinstance(data, dict):
                 return {
                     "users": [
@@ -1094,7 +1110,7 @@ class AnonClient:
         if max_id:
             params["max_id"] = max_id
 
-        data = self.get_mobile_api("/clips/user/", params=params)
+        data = self.post_mobile_api("/clips/user/", data=params)
         if data and isinstance(data, dict):
             items = data.get("items", [])
             paging = data.get("paging_info", {})
