@@ -102,7 +102,7 @@ class SafeExecutor:
         ''')
     """
 
-    def __init__(self, ig_instance=None, timeout: int = 30):
+    def __init__(self, ig_instance=None, timeout: int = 60):
         self._ig = ig_instance
         self._timeout = timeout
 

@@ -354,7 +354,7 @@ class PublicAPI:
         Get single media details via mobile API (anonymous).
 
         Args:
-            media_id: Media PK (numeric ID)
+            media_id: Media PK (numeric ID) or shortcode
 
         Returns:
             Post data dict with likes, comments, carousel, video, location, etc.
@@ -363,7 +363,24 @@ class PublicAPI:
             media = ig.public.get_media(3823732431648645952)
             print(media["likes"], media["caption"][:50])
         """
-        return self._client.get_media_info_mobile(media_id)
+        # Strategy 1: Direct mobile API
+        try:
+            result = self._client.get_media_info_mobile(media_id)
+            if result:
+                return result
+        except Exception as e:
+            logger.debug(f"[Public] Media mobile API failed: {e}")
+
+        # Strategy 2: Try as shortcode through post chain
+        try:
+            media_id_str = str(media_id)
+            if not media_id_str.isdigit():
+                # Looks like a shortcode
+                return self.get_post_by_shortcode(media_id_str)
+        except Exception as e:
+            logger.debug(f"[Public] Media shortcode fallback failed: {e}")
+
+        return None
 
     def get_media_urls(self, shortcode: str) -> List[Dict[str, str]]:
         """
@@ -442,6 +459,8 @@ class PublicAPI:
         """
         Get public post comments (anonymous).
 
+        Uses fallback chain: GraphQL → embed/post data.
+
         Args:
             shortcode: Post shortcode
             max_count: Maximum comments to fetch
@@ -449,29 +468,62 @@ class PublicAPI:
         Returns:
             List of comment dicts
         """
-        data = self._client.get_post_comments_graphql(
-            shortcode, first=min(max_count, 50)
-        )
-        if not data:
-            return []
+        # Strategy 1: Legacy GraphQL comments
+        try:
+            data = self._client.get_post_comments_graphql(
+                shortcode, first=min(max_count, 50)
+            )
+            if data:
+                comments = []
+                for edge in data.get("edges", []):
+                    node = edge.get("node", {})
+                    owner = node.get("owner", {})
+                    comments.append({
+                        "pk": node.get("id"),
+                        "text": node.get("text", ""),
+                        "username": owner.get("username"),
+                        "user_pk": owner.get("id"),
+                        "is_verified": owner.get("is_verified", False),
+                        "profile_pic_url": owner.get("profile_pic_url"),
+                        "likes": node.get("edge_liked_by", {}).get("count", 0),
+                        "replies_count": node.get("edge_threaded_comments", {}).get("count", 0),
+                        "created_at": node.get("created_at"),
+                    })
+                if comments:
+                    return comments[:max_count]
+        except Exception as e:
+            logger.debug(f"[Public] Comments GraphQL failed: {e}")
 
-        comments = []
-        for edge in data.get("edges", []):
-            node = edge.get("node", {})
-            owner = node.get("owner", {})
-            comments.append({
-                "pk": node.get("id"),
-                "text": node.get("text", ""),
-                "username": owner.get("username"),
-                "user_pk": owner.get("id"),
-                "is_verified": owner.get("is_verified", False),
-                "profile_pic_url": owner.get("profile_pic_url"),
-                "likes": node.get("edge_liked_by", {}).get("count", 0),
-                "replies_count": node.get("edge_threaded_comments", {}).get("count", 0),
-                "created_at": node.get("created_at"),
-            })
+        # Strategy 2: Extract comments from post embed/chain data
+        try:
+            post = self.get_post_by_shortcode(shortcode)
+            if post:
+                # Some post data includes preview comments
+                preview = post.get("edge_media_preview_comment", {})
+                if preview and preview.get("edges"):
+                    comments = []
+                    for edge in preview["edges"]:
+                        node = edge.get("node", {})
+                        owner = node.get("owner", {})
+                        comments.append({
+                            "pk": node.get("id"),
+                            "text": node.get("text", ""),
+                            "username": owner.get("username", ""),
+                            "user_pk": owner.get("id"),
+                            "likes": node.get("edge_liked_by", {}).get("count", 0),
+                            "created_at": node.get("created_at"),
+                        })
+                    if comments:
+                        return comments[:max_count]
 
-        return comments[:max_count]
+                # Some responses have comments in a flat list
+                flat_comments = post.get("comments", [])
+                if flat_comments and isinstance(flat_comments, list):
+                    return flat_comments[:max_count]
+        except Exception as e:
+            logger.debug(f"[Public] Comments from post data failed: {e}")
+
+        return []
 
     # ═══════════════════════════════════════════════════════════
     # HASHTAGS
@@ -493,15 +545,27 @@ class PublicAPI:
             List of post dicts
         """
         tag = hashtag.lstrip("#").strip().lower()
-        data = self._client.get_hashtag_posts_graphql(tag, first=min(max_count, 50))
-        if not data:
-            return []
 
-        posts = []
-        edges = data.get("edge_hashtag_to_media", {}).get("edges", [])
-        posts = self._client._parse_timeline_edges(edges)
+        # Strategy 1: Legacy GraphQL
+        try:
+            data = self._client.get_hashtag_posts_graphql(tag, first=min(max_count, 50))
+            if data:
+                edges = data.get("edge_hashtag_to_media", {}).get("edges", [])
+                posts = self._client._parse_timeline_edges(edges)
+                if posts:
+                    return posts[:max_count]
+        except Exception as e:
+            logger.debug(f"[Public] Hashtag GraphQL failed: {e}")
 
-        return posts[:max_count]
+        # Strategy 2: Fallback to v2 sections (more reliable)
+        try:
+            v2_result = self.get_hashtag_posts_v2(tag, max_count=max_count)
+            if v2_result and v2_result.get("posts"):
+                return v2_result["posts"][:max_count]
+        except Exception as e:
+            logger.debug(f"[Public] Hashtag v2 fallback failed: {e}")
+
+        return []
 
     # ═══════════════════════════════════════════════════════════
     # SEARCH
@@ -561,9 +625,44 @@ class PublicAPI:
         if not user_id:
             return []
 
-        result = self._client.get_user_reels(user_id, count=min(max_count, 33))
-        if result and result.get("items"):
-            return result["items"][:max_count]
+        # Strategy 1: Direct reels endpoint
+        try:
+            result = self._client.get_user_reels(user_id, count=min(max_count, 33))
+            if result and result.get("items"):
+                return result["items"][:max_count]
+        except Exception as e:
+            logger.debug(f"[Public] Reels API failed: {e}")
+
+        # Strategy 2: Filter video posts from feed
+        try:
+            feed = self._client.get_user_feed_mobile(str(user_id), count=min(max_count * 3, 33))
+            if feed and feed.get("items"):
+                reels = [
+                    item for item in feed["items"]
+                    if item.get("media_type") == 2  # Video
+                    or item.get("is_video") is True
+                    or item.get("product_type") == "clips"
+                ]
+                if reels:
+                    return reels[:max_count]
+        except Exception as e:
+            logger.debug(f"[Public] Reels from feed fallback failed: {e}")
+
+        # Strategy 3: Filter from web profile posts
+        try:
+            posts = self.get_posts(username, max_count=max_count * 3)
+            if posts:
+                reels = [
+                    p for p in posts
+                    if p.get("is_video") is True
+                    or p.get("media_type") == "GraphVideo"
+                    or p.get("product_type") == "clips"
+                ]
+                if reels:
+                    return reels[:max_count]
+        except Exception as e:
+            logger.debug(f"[Public] Reels from posts fallback failed: {e}")
+
         return []
 
     # ═══════════════════════════════════════════════════════════

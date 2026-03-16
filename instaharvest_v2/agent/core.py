@@ -100,7 +100,7 @@ class InstaAgent:
         permission: Permission level (ASK_EVERY, ASK_ONCE, FULL_ACCESS)
         permission_callback: Custom permission prompt function
         max_steps: Maximum agent loop iterations (default 15)
-        timeout: Code execution timeout in seconds (default 30)
+        timeout: Code execution timeout in seconds (default 60)
         verbose: Print step-by-step progress
     """
 
@@ -113,7 +113,7 @@ class InstaAgent:
         permission: Permission = Permission.ASK_EVERY,
         permission_callback: Optional[Callable] = None,
         max_steps: int = 15,
-        timeout: int = 30,
+        timeout: int = 60,
         verbose: bool = True,
         memory: bool = False,
         memory_dir: Optional[str] = None,

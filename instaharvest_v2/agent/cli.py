@@ -93,8 +93,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=30,
-        help="Code execution timeout in seconds (default: 30)",
+        default=60,
+        help="Code execution timeout in seconds (default: 60)",
     )
     parser.add_argument(
         "--quiet",
