@@ -1,8 +1,8 @@
 # Changelog
 
-## [1.1.4] — 2026-04-12
+## [1.1.7] — 2026-04-12
 
-### Added (v1.1.4)
+### Added (v1.1.7)
 
 - **agent/tools/utility_tools.py** — 7 new utility tools:
   - `json_parse`, `csv_to_json`, `json_to_csv`, `calculate`, `text_replace`, `merge_files`, `download_url`
@@ -15,7 +15,7 @@
 - Agent TOOL_HANDLERS expanded from 37 → **161 tools** (164 schemas)
 - 6242 tests passing (up from 489)
 
-### Fixed (v1.1.4)
+### Fixed (v1.1.7)
 
 - **agent/core.py** — Critical dispatch bug: generic `_execute_tool` fallback was not passing `ig=`, `is_logged_in=`, `cache=` arguments to Phase 5 tool handlers, causing all new tools to fail at runtime
 - **README.md** — Updated all outdated statistics (modules, tools, tests, coverage, project structure)
