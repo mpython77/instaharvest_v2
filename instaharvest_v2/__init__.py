@@ -97,7 +97,7 @@ def __getattr__(name):
         return AgentCoordinator
     raise AttributeError(f"module 'instaharvest_v2' has no attribute {name!r}")
 
-__version__ = "1.1.29"
+__version__ = "1.1.4"
 __all__ = [
     "Instagram",
     "AsyncInstagram",
