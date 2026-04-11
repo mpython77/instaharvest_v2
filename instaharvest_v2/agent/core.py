@@ -68,6 +68,12 @@ class AgentResult:
 
     @property
     def success(self) -> bool:
+        """
+        Success.
+
+        Returns:
+            Return value of success
+        """
         return not self.error
 
     def __str__(self) -> str:
@@ -75,6 +81,39 @@ class AgentResult:
             return f"❌ {self.error}"
         return self.answer or "Completed"
 
+
+
+# ── Tool Emoji Maps ──────────────────────────────
+_API_EMOJI_MAP = {
+    "follow_user": "👥", "get_followers": "👥", "get_following": "👥", "get_friendship_status": "🤝",
+    "like_media": "❤️", "comment_media": "💬", "get_stories": "📱", "send_dm": "✉️",
+    "get_hashtag_info": "#️⃣", "get_my_account": "👤", "get_user_id": "🆔", "is_public": "🔓", "exists": "❓",
+    "get_feed": "📰", "get_all_posts": "📸", "get_reels": "🎬", "get_comments": "💬", "get_highlights": "⭐", 
+    "get_similar_accounts": "👥", "get_post_by_shortcode": "🔗", "get_post_by_url": "🌐",
+    "get_media_urls": "📎", "get_hashtag_posts": "#️⃣", "get_location_posts": "📍", "run_diagnostics": "🔬",
+    "upload_photo": "📤", "upload_video": "📤", "upload_reel": "📤", "upload_story_photo": "📤", 
+    "upload_story_video": "📤", "upload_carousel": "📤", "delete_media": "🗑️",
+    "get_likers": "❤️", "save_media": "🔖", "unsave_media": "🔖", "get_comment_replies": "💬", 
+    "reply_to_comment": "💬", "edit_caption": "✏️", "block_user": "🚫", "unblock_user": "✅", 
+    "mute_user": "🔇", "unmute_user": "🔊", "remove_follower": "👋", "get_pending_requests": "📩",
+    "approve_request": "✅", "get_mutual_followers": "🤝", "get_story_viewers": "👁", "react_to_story": "😊",
+    "create_highlight": "⭐", "get_all_highlights": "⭐", "get_non_followers": "👻", "get_fans": "🌟",
+    "unfollow_non_followers": "👻", "follow_hashtag_users": "📈", "export_followers_csv": "💾", 
+    "export_following_csv": "💾", "export_post_likers": "💾", "export_to_json": "💾",
+    "save_to_sqlite": "🗄️", "save_to_jsonl": "📄", "search_locations": "📍", "get_location_info": "📍", 
+    "get_nearby_locations": "📍", "get_timeline": "📰", "get_saved_posts": "🔖", "get_liked_posts": "❤️",
+    "get_full_profile": "👤", "parse_bio": "📋", "analyze_hashtag": "#️⃣", "suggest_hashtags": "💡",
+    "get_notifications": "🔔", "get_activity_counts": "📊", "compare_profiles": "📊", "engagement_analysis": "📈", 
+    "build_report": "📋", "search_hashtags": "#️⃣", "search_places": "📍", "explore_feed": "🔍",
+}
+
+_SYS_EMOJI_MAP = {
+    "write_file": "📝", "append_to_file": "📝", "copy_file": "📋", "move_file": "📦",
+    "delete_file": "🗑️", "file_exists": "❓", "get_file_info": "ℹ️",
+    "get_working_directory": "📂", "create_directory": "📁", "list_directory": "📂", "find_files": "🔍",
+    "save_session_data": "💾", "load_session_data": "💾", "list_sessions": "💾",
+    "get_env_var": "🔧", "set_working_directory": "📂", "get_system_info": "🖥️",
+}
 
 class InstaAgent:
     """
@@ -122,6 +161,25 @@ class InstaAgent:
         streaming: bool = False,
     ):
         # Resolve API key
+        """
+        Init.
+
+        Args:
+            ig: Parameter ig
+            provider: Parameter provider
+            api_key: Parameter api_key
+            model: Parameter model
+            permission: Parameter permission
+            permission_callback: Parameter permission_callback
+            max_steps: Parameter max_steps
+            timeout: Parameter timeout
+            verbose: Parameter verbose
+            memory: Parameter memory
+            memory_dir: Parameter memory_dir
+            cost_tracking: Parameter cost_tracking
+            retry_count: Parameter retry_count
+            streaming: Parameter streaming
+        """
         api_key = api_key or resolve_api_key(provider)
         if not api_key and provider.lower() != "ollama":
             raise ValueError(
@@ -187,7 +245,8 @@ class InstaAgent:
                     self._is_logged_in = True
                 else:
                     self._is_logged_in = False
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Session detection failed: {e}")
                 self._is_logged_in = False
 
         # Inject cache and login status into executor
@@ -447,7 +506,8 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                 continue
             try:
                 module = getattr(ig, attr_name, None)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
                 continue
             if module is None or isinstance(module, (str, int, float, bool, list, dict)):
                 continue
@@ -461,7 +521,8 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                     continue
                 try:
                     method = getattr(module, method_name, None)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"operation failed: {e}")
                     continue
                 if not callable(method):
                     continue
@@ -745,6 +806,12 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
 
     @property
     def provider_name(self) -> str:
+        """
+        Provider name.
+
+        Returns:
+            Return value of provider_name
+        """
         return self._provider.provider_name
 
     # ═══════════════════════════════════════════════════════════
@@ -968,31 +1035,23 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         self,
         step_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> AgentResult:
-        """
-        Main agent loop: LLM → Tool → Result → LLM → ...
-
-        Continues until LLM responds without tool calls or max_steps reached.
-        """
+        """Main agent loop: LLM → Tool → Result → LLM → ..."""
         result = AgentResult()
 
         def _emit(event: Dict[str, Any]):
-            """Safely emit a step event via the callback."""
             if step_callback:
                 try:
                     step_callback(event)
-                except Exception:
-                    pass  # Never let callback errors break the loop
+                except Exception as e:
+                    logger.debug(f"Step callback error: {e}")
 
         for step in range(self._max_steps):
             result.steps = step + 1
-
             if self._verbose:
                 safe_print(f"  {emoji('📍', '>')} Step {step + 1}...", end="")
 
-            # Emit: thinking
             _emit({"type": "thinking", "step": step + 1, "message": f"Step {step + 1}: Analyzing..."})
 
-            # Call LLM with filtered tools
             try:
                 response = self._provider.generate(
                     messages=self._history,
@@ -1005,63 +1064,20 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                 _emit({"type": "error", "message": result.error})
                 return result
 
-            # No tool calls — check if text contains code that should be executed
+            # Scenario 1: LLM didn't return tool calls
             if not response.has_tool_calls:
                 content = response.content or ""
-
-                # AUTO-EXECUTE: If response has ```python code blocks,
-                # extract and run them automatically (MALFORMED fallback scenario)
-                extracted_code = self._extract_code_from_text(content)
-                if extracted_code:
-                    if self._verbose:
-                        print(f" 🔧 auto-exec")
-
-                    # Emit: code extracted
-                    _emit({"type": "code", "content": extracted_code, "description": "Auto-extracted Python code"})
-
-                    self._history.append({"role": "assistant", "content": content})
-
-                    # Execute the extracted code
-                    _emit({"type": "tool_call", "name": "run_instaharvest_v2_code", "arguments": {"description": "auto-extracted"}})
-                    exec_result = self._handle_code_execution(
-                        {"code": extracted_code, "description": "auto-extracted"},
-                        step_callback=step_callback,
-                    )
-
-                    # Track results
-                    result.code_executed = extracted_code
-                    if isinstance(exec_result, ExecutionResult):
-                        result.execution_result = exec_result
-
-                    # Add tool-like result to history so LLM sees the output
-                    result_str = str(exec_result)
-                    if len(result_str) > 3000:
-                        result_str = result_str[:3000] + "\n... (truncated)"
-
-                    # Emit: tool result
-                    _emit({"type": "tool_result", "name": "run_instaharvest_v2_code", "output": result_str[:2000],
-                           "success": isinstance(exec_result, ExecutionResult) and exec_result.success})
-
-                    self._history.append({
-                        "role": "tool",
-                        "name": "run_instaharvest_v2_code",
-                        "content": result_str,
-                    })
-
-                    # Continue loop — LLM will see the code output
-                    # and generate a proper final answer
+                # Try auto-execute
+                if self._try_auto_execute(content, result, step_callback, _emit):
                     continue
-
-                # Normal final answer (no code blocks found)
+                # Normal text answer
                 result.answer = content
                 self._history.append({"role": "assistant", "content": content})
-
                 if self._verbose:
                     print(" ✅")
                 return result
 
-            # If response has BOTH text content AND tool calls (Gemini behavior)
-            # — save the text as potential answer
+            # Scenario 2: LLM returned Tool Calls
             if response.content and response.content.strip():
                 result.answer = response.content
 
@@ -1069,72 +1085,98 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
                 print(f" 🔧 {len(response.tool_calls)} tool")
 
             self._add_assistant_message(response)
+            
+            # Process tool calls
+            loop_broken = self._process_tool_calls(response.tool_calls, result, step_callback, _emit)
+            if loop_broken:
+                # LLM should see the failure boundary and decide next steps
+                pass
 
-            for tc in response.tool_calls:
-                # Emit: tool call
-                _emit({"type": "tool_call", "name": tc.name, "arguments": tc.arguments})
-
-                # ── Tool usage analytics ──
-                self._tool_stats[tc.name] = self._tool_stats.get(tc.name, 0) + 1
-
-                tool_result = self._execute_tool(tc, step_callback=step_callback)
-
-                # Add tool result to history
-                self._add_tool_result(tc, tool_result)
-
-                # Emit: tool result
-                tool_output = str(tool_result)
-                is_error = tool_output.startswith("Error") or tool_output.startswith("❌")
-                _emit({"type": "tool_result", "name": tc.name, "output": tool_output[:2000],
-                       "success": not is_error})
-
-                # ── Dead loop detection ──
-                if is_error:
-                    error_key = f"{tc.name}:{tool_output[:100]}"
-                    self._error_tracker[error_key] = self._error_tracker.get(error_key, 0) + 1
-
-                    if self._error_tracker[error_key] >= self._max_identical_errors:
-                        # Inject guidance to break the loop
-                        self._history.append({
-                            "role": "user",
-                            "content": (
-                                f"⚠️ SYSTEM: Tool '{tc.name}' failed {self._error_tracker[error_key]} times "
-                                f"with the same error. Try a DIFFERENT approach or tool, "
-                                f"or tell the user what went wrong and stop."
-                            ),
-                        })
-                        logger.warning(
-                            f"Dead loop detected: {tc.name} failed "
-                            f"{self._error_tracker[error_key]}x — injecting guidance"
-                        )
-                        if self._verbose:
-                            print(f"    ⚠️ Dead loop detected — switching strategy")
-                        break  # Break this tool iteration, go back to LLM
-                else:
-                    # Success — clear error tracker for this tool
-                    keys_to_clear = [k for k in self._error_tracker if k.startswith(f"{tc.name}:")]
-                    for k in keys_to_clear:
-                        del self._error_tracker[k]
-
-                # Track code and files
-                if tc.name == "run_instaharvest_v2_code":
-                    result.code_executed = tc.arguments.get("code", "")
-                    if isinstance(tool_result, ExecutionResult):
-                        result.execution_result = tool_result
-                elif tc.name in ("save_to_file", "create_chart", "write_file"):
-                    filename = tc.arguments.get("filename", tc.arguments.get("path", ""))
-                    if filename:
-                        result.files_created.append(filename)
-                        self._files_created.append(filename)
-                elif tc.name == "download_media":
-                    output_dir = tc.arguments.get("output_dir", "downloads")
-                    result.files_created.append(output_dir)
-
-        # Max steps reached — use last captured answer if available
         if not result.answer.strip():
             result.answer = "Warning: step limit reached. Result may be incomplete."
         return result
 
+    def _try_auto_execute(self, content: str, result: AgentResult, step_callback, emit_fn) -> bool:
+        """Handle LLM markdown block auto-execution"""
+        extracted_code = self._extract_code_from_text(content)
+        if not extracted_code:
+            return False
+
+        if self._verbose:
+            print(f" 🔧 auto-exec")
+
+        emit_fn({"type": "code", "content": extracted_code, "description": "Auto-extracted Python code"})
+        self._history.append({"role": "assistant", "content": content})
+
+        emit_fn({"type": "tool_call", "name": "run_instaharvest_v2_code", "arguments": {"description": "auto-extracted"}})
+        exec_result = self._handle_code_execution(
+            {"code": extracted_code, "description": "auto-extracted"},
+            step_callback=step_callback,
+        )
+
+        result.code_executed = extracted_code
+        if isinstance(exec_result, ExecutionResult):
+            result.execution_result = exec_result
+
+        result_str = str(exec_result)
+        if len(result_str) > 3000:
+            result_str = result_str[:3000] + "\n... (truncated)"
+
+        emit_fn({"type": "tool_result", "name": "run_instaharvest_v2_code", "output": result_str[:2000],
+               "success": isinstance(exec_result, ExecutionResult) and exec_result.success})
+
+        self._history.append({"role": "tool", "name": "run_instaharvest_v2_code", "content": result_str})
+        return True
+
+    def _process_tool_calls(self, tool_calls, result: AgentResult, step_callback, emit_fn) -> bool:
+        """Process and track tool calls, returns True if dead loop activated."""
+        loop_broken = False
+        for tc in tool_calls:
+            emit_fn({"type": "tool_call", "name": tc.name, "arguments": tc.arguments})
+            self._tool_stats[tc.name] = self._tool_stats.get(tc.name, 0) + 1
+
+            tool_result = self._execute_tool(tc, step_callback=step_callback)
+            self._add_tool_result(tc, tool_result)
+
+            tool_output = str(tool_result)
+            is_error = tool_output.startswith("Error") or tool_output.startswith("❌")
+            emit_fn({"type": "tool_result", "name": tc.name, "output": tool_output[:2000], "success": not is_error})
+
+            if is_error:
+                error_key = f"{tc.name}:{tool_output[:100]}"
+                self._error_tracker[error_key] = self._error_tracker.get(error_key, 0) + 1
+
+                if self._error_tracker[error_key] >= self._max_identical_errors:
+                    self._history.append({
+                        "role": "user",
+                        "content": (
+                            f"⚠️ SYSTEM: Tool '{tc.name}' failed {self._error_tracker[error_key]} times "
+                            f"with the same error. Try a DIFFERENT approach or tool, "
+                            f"or tell the user what went wrong and stop."
+                        ),
+                    })
+                    if self._verbose:
+                        print(f"    ⚠️ Dead loop detected — switching strategy")
+                    loop_broken = True
+                    break
+            else:
+                keys_to_clear = [k for k in self._error_tracker if k.startswith(f"{tc.name}:")]
+                for k in keys_to_clear:
+                    del self._error_tracker[k]
+
+            if tc.name == "run_instaharvest_v2_code":
+                result.code_executed = tc.arguments.get("code", "")
+                if isinstance(tool_result, ExecutionResult):
+                    result.execution_result = tool_result
+            elif tc.name in ("save_to_file", "create_chart", "write_file"):
+                filename = tc.arguments.get("filename", tc.arguments.get("path", ""))
+                if filename:
+                    result.files_created.append(filename)
+                    self._files_created.append(filename)
+            elif tc.name == "download_media":
+                output_dir = tc.arguments.get("output_dir", "downloads")
+                result.files_created.append(output_dir)
+        return loop_broken
     # ═══════════════════════════════════════════════════════════
     # CODE EXTRACTION
     # ═══════════════════════════════════════════════════════════
@@ -1189,175 +1231,54 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         elif name == "ask_user":
             return self._handle_ask_user(args)
 
-        # Specialized Instagram tools — direct API calls, no sandbox
-        elif name == "get_profile":
+        # Specialized Legacy Instagram tools
+        elif name in ("get_profile", "get_posts"):
             if self._verbose:
-                print(f"    🔍 get_profile(@{args.get('username', '?')})")
+                e = "🔍" if name == "get_profile" else "📸"
+                print(f"    {e} {name}(@{args.get('username', '?')})")
             return TOOL_HANDLERS[name](args, ig=self._ig, cache=self._user_cache)
-
-        elif name == "get_posts":
-            if self._verbose:
-                print(f"    📸 get_posts(@{args.get('username', '?')})")
-            return TOOL_HANDLERS[name](args, ig=self._ig, cache=self._user_cache)
-
         elif name == "search_users":
             if self._verbose:
                 print(f"    🔎 search_users('{args.get('query', '?')}')")
             return TOOL_HANDLERS[name](args, ig=self._ig)
-
         elif name == "get_user_info":
             if self._verbose:
                 print(f"    👤 get_user_info(@{args.get('username', '?')})")
-            return TOOL_HANDLERS[name](
-                args, ig=self._ig,
-                is_logged_in=self._is_logged_in,
-                cache=self._user_cache,
-            )
-        # ─── Phase 2/3/4 Specialized Tools ─────────────────────────
-        elif name in (
-            # Phase 2: Social actions (login required)
-            "follow_user", "get_followers", "get_following",
-            "get_friendship_status", "like_media", "comment_media",
-            "get_stories", "send_dm", "get_hashtag_info", "get_my_account",
-            # Phase 3: Public Anonymous (no login)
-            "get_user_id", "is_public", "exists",
-            "get_feed", "get_all_posts", "get_reels",
-            "get_comments", "get_highlights", "get_similar_accounts",
-            "get_post_by_shortcode", "get_post_by_url", "get_media_urls",
-            "get_hashtag_posts", "get_location_posts", "run_diagnostics",
-            # Phase 4: Upload & Content Creation
-            "upload_photo", "upload_video", "upload_reel",
-            "upload_story_photo", "upload_story_video",
-            "upload_carousel", "delete_media",
-            # Phase 4: Advanced Media
-            "get_likers", "save_media", "unsave_media",
-            "get_comment_replies", "reply_to_comment", "edit_caption",
-            # Phase 4: Advanced Friendships
-            "block_user", "unblock_user", "mute_user", "unmute_user",
-            "remove_follower", "get_pending_requests",
-            "approve_request", "get_mutual_followers",
-            # Phase 4: Stories Management
-            "get_story_viewers", "react_to_story",
-            "create_highlight", "get_all_highlights",
-            # Phase 4: Growth
-            "get_non_followers", "get_fans",
-            "unfollow_non_followers", "follow_hashtag_users",
-            # Phase 4: Export & Pipeline
-            "export_followers_csv", "export_following_csv",
-            "export_post_likers", "export_to_json",
-            "save_to_sqlite", "save_to_jsonl",
-            # Phase 4: Location
-            "search_locations", "get_location_info", "get_nearby_locations",
-            # Phase 4: Feed
-            "get_timeline", "get_saved_posts", "get_liked_posts",
-            # Phase 4: Users
-            "get_full_profile", "parse_bio",
-            # Phase 4: Hashtag Research
-            "analyze_hashtag", "suggest_hashtags",
-            # Phase 4: Notifications
-            "get_notifications", "get_activity_counts",
-            # Phase 4: Public Data Analytics
-            "compare_profiles", "engagement_analysis", "build_report",
-            # Phase 4: Advanced Search
-            "search_hashtags", "search_places", "explore_feed",
-        ):
-            emoji_map = {
-                "follow_user": "👥", "get_followers": "👥",
-                "get_following": "👥", "get_friendship_status": "🤝",
-                "like_media": "❤️", "comment_media": "💬",
-                "get_stories": "📱", "send_dm": "✉️",
-                "get_hashtag_info": "#️⃣", "get_my_account": "👤",
-                "get_user_id": "🆔", "is_public": "🔓", "exists": "❓",
-                "get_feed": "📰", "get_all_posts": "📸", "get_reels": "🎬",
-                "get_comments": "💬", "get_highlights": "⭐", "get_similar_accounts": "👥",
-                "get_post_by_shortcode": "🔗", "get_post_by_url": "🌐",
-                "get_media_urls": "📎", "get_hashtag_posts": "#️⃣",
-                "get_location_posts": "📍", "run_diagnostics": "🔬",
-                "upload_photo": "📤", "upload_video": "📤", "upload_reel": "📤",
-                "upload_story_photo": "📤", "upload_story_video": "📤",
-                "upload_carousel": "📤", "delete_media": "🗑️",
-                "get_likers": "❤️", "save_media": "🔖", "unsave_media": "🔖",
-                "get_comment_replies": "💬", "reply_to_comment": "💬", "edit_caption": "✏️",
-                "block_user": "🚫", "unblock_user": "✅", "mute_user": "🔇", "unmute_user": "🔊",
-                "remove_follower": "👋", "get_pending_requests": "📩",
-                "approve_request": "✅", "get_mutual_followers": "🤝",
-                "get_story_viewers": "👁", "react_to_story": "😊",
-                "create_highlight": "⭐", "get_all_highlights": "⭐",
-                "get_non_followers": "👻", "get_fans": "🌟",
-                "unfollow_non_followers": "👻", "follow_hashtag_users": "📈",
-                "export_followers_csv": "💾", "export_following_csv": "💾",
-                "export_post_likers": "💾", "export_to_json": "💾",
-                "save_to_sqlite": "🗄️", "save_to_jsonl": "📄",
-                "search_locations": "📍", "get_location_info": "📍", "get_nearby_locations": "📍",
-                "get_timeline": "📰", "get_saved_posts": "🔖", "get_liked_posts": "❤️",
-                "get_full_profile": "👤", "parse_bio": "📋",
-                "analyze_hashtag": "#️⃣", "suggest_hashtags": "💡",
-                "get_notifications": "🔔", "get_activity_counts": "📊",
-                "compare_profiles": "📊", "engagement_analysis": "📈", "build_report": "📋",
-                "search_hashtags": "#️⃣", "search_places": "📍", "explore_feed": "🔍",
-            }
-            if self._verbose:
-                print(f"    {emoji_map.get(name, '🔧')} {name}({', '.join(f'{k}={v!r}' for k, v in list(args.items())[:2])})")
-            return TOOL_HANDLERS[name](
-                args, ig=self._ig, is_logged_in=self._is_logged_in,
-            )
-
+            return TOOL_HANDLERS[name](args, ig=self._ig, is_logged_in=self._is_logged_in, cache=self._user_cache)
         elif name == "get_media_info":
             if self._verbose:
                 print(f"    📄 get_media_info({args.get('media_id', '?')})")
             return TOOL_HANDLERS[name](args, ig=self._ig)
 
-        # Extended tools (handled by tools.py)
+        # ─── Specialized API Tools ─────────────────────────
+        elif name in _API_EMOJI_MAP:
+            if self._verbose:
+                e = _API_EMOJI_MAP.get(name, '🔧')
+                print(f"    {e} {name}({', '.join(f'{k}={v!r}' for k, v in list(args.items())[:2])})")
+            return TOOL_HANDLERS[name](args, ig=self._ig, is_logged_in=self._is_logged_in)
+
+        # ─── Extended/System Tools ─────────────────────────
         elif name in TOOL_HANDLERS:
             handler = TOOL_HANDLERS[name]
-
-            # System tools emoji routing
-            _sys_emoji = {
-                "write_file": "📝", "append_to_file": "📝",
-                "copy_file": "📋", "move_file": "📦",
-                "delete_file": "🗑️", "file_exists": "❓",
-                "get_file_info": "ℹ️",
-                "get_working_directory": "📂", "create_directory": "📁",
-                "list_directory": "📂", "find_files": "🔍",
-                "save_session_data": "💾", "load_session_data": "💾",
-                "list_sessions": "💾",
-                "get_env_var": "🔧", "set_working_directory": "📂",
-                "get_system_info": "🖥️",
-            }
-
             if self._verbose:
-                e = _sys_emoji.get(name, "🔧")
+                e = _SYS_EMOJI_MAP.get(name, "🔧")
                 print(f"    {e} {name}")
 
-            # Some tools need the ig instance
+            # Specific Permission Gates
             if name == "download_media":
-                if not self._permissions.check(
-                    "download.media",
-                    f"Download: {args.get('url', '?')}"
-                ):
+                if not self._permissions.check("download.media", f"Download: {args.get('url', '?')}"):
                     return "❌ Permission denied by user"
                 return handler(args, ig=self._ig)
-
             elif name == "http_request":
-                if not self._permissions.check(
-                    "http.request",
-                    f"HTTP {args.get('method', 'GET')} {args.get('url', '?')}"
-                ):
+                if not self._permissions.check("http.request", f"HTTP {args.get('method', 'GET')} {args.get('url', '?')}"):
                     return "❌ Permission denied by user"
                 return handler(args)
 
-            else:
-                # Universal dispatch — pass ig, login status, and cache
-                # Handlers use **kw to accept only what they need
-                return handler(
-                    args,
-                    ig=self._ig,
-                    is_logged_in=self._is_logged_in,
-                    cache=self._user_cache,
-                )
+            # Universal dispatch
+            return handler(args, ig=self._ig, is_logged_in=self._is_logged_in, cache=self._user_cache)
 
-        else:
-            return f"Unknown tool: {name}"
+        return f"Unknown tool: {name}"
+
 
     def _handle_code_execution(
         self,
@@ -1383,8 +1304,8 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         if step_callback:
             try:
                 step_callback({"type": "code", "content": code, "description": description})
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Code step callback error: {e}")
 
         # Execute in sandbox
         exec_result = self._executor.run(code)

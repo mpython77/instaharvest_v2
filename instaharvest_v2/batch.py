@@ -65,6 +65,12 @@ class BatchAPI:
         results: List[Tuple[Any, Any]] = []
 
         async def task(item):
+            """
+            Task.
+
+            Args:
+                item: Parameter item
+            """
             nonlocal completed
             async with sem:
                 try:
@@ -73,16 +79,16 @@ class BatchAPI:
                     if on_progress:
                         try:
                             on_progress(completed, total, item, result)
-                        except Exception:
-                            pass
+                        except Exception as cb_err:
+                            logger.debug(f"[Batch] Progress callback error: {cb_err}")
                     return (item, result)
                 except Exception as e:
                     completed += 1
                     if on_progress:
                         try:
                             on_progress(completed, total, item, None)
-                        except Exception:
-                            pass
+                        except Exception as cb_err:
+                            logger.debug(f"[Batch] Progress callback error: {cb_err}")
                     if fail_silently:
                         logger.warning(f"[Batch] Error for {item}: {e}")
                         return (item, None)
@@ -184,6 +190,12 @@ class BatchAPI:
             Dict of {user_id: success}
         """
         async def follow_with_delay(uid):
+            """
+            Follow with delay.
+
+            Args:
+                uid: Parameter uid
+            """
             result = await self._ig.friendships.follow(uid)
             await asyncio.sleep(delay)
             return result
@@ -213,6 +225,12 @@ class BatchAPI:
             Dict of {media_id: success}
         """
         async def like_with_delay(mid):
+            """
+            Like with delay.
+
+            Args:
+                mid: Parameter mid
+            """
             result = await self._ig.media.like(mid)
             await asyncio.sleep(delay)
             return result

@@ -16,6 +16,12 @@ class AsyncDirectAPI:
     """Instagram Direct Message API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     async def get_inbox(

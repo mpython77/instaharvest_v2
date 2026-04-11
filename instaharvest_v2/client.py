@@ -75,6 +75,19 @@ class HttpClient:
         retry_config: Optional[RetryConfig] = None,
         event_emitter=None,
     ):
+        """
+        Init.
+
+        Args:
+            session_manager: Parameter session_manager
+            proxy_manager: Parameter proxy_manager
+            anti_detect: Parameter anti_detect
+            rate_limiter: Parameter rate_limiter
+            challenge_handler: Parameter challenge_handler
+            session_refresh_callback: Parameter session_refresh_callback
+            retry_config: Parameter retry_config
+            event_emitter: Parameter event_emitter
+        """
         self._session_mgr = session_manager
         self._proxy_mgr = proxy_manager
         self._anti_detect = anti_detect
@@ -180,8 +193,8 @@ class HttpClient:
                         sess.x_instagram_ajax = m.group(1)
                         ajax_found = True
                         logger.info(f"✅ [Warm-up] ajax (auto): {m.group(1)}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[Warm-up] Ajax extraction failed: {e}")
 
             # Fallback to hardcoded value
             if not ajax_found and not sess.x_instagram_ajax:
@@ -193,8 +206,8 @@ class HttpClient:
             # Clean up
             try:
                 warm_sess.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[Warm-up] Session close cleanup: {e}")
 
             self._warmed_sessions.add(sess.ds_user_id)
 
@@ -215,8 +228,8 @@ class HttpClient:
         if self._curl_session:
             try:
                 self._curl_session.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Session close cleanup: {e}")
         self._curl_session = curl_requests.Session(
             impersonate="chrome142"
         )
@@ -381,78 +394,23 @@ class HttpClient:
                 )
 
                 # Headers
-                if raw_data and raw_headers:
-                    # Raw upload — minimal headers + fingerprint
-                    fp = sess.fingerprint
-                    headers = {
-                        "user-agent": fp.user_agent if fp else sess.user_agent,
-                        "cookie": sess.cookie_string,
-                        "x-csrftoken": sess.csrf_token,
-                        "x-ig-app-id": IG_APP_ID,
-                        "referer": "https://www.instagram.com/",
-                        "origin": "https://www.instagram.com",
-                    }
-                    headers.update(raw_headers)
-                elif sess.fingerprint:
-                    # ── SESSION-LOCKED HEADERS ──────────────────────────
-                    # All header values come from the immutable fingerprint.
-                    # No random rotation — Instagram sees a stable browser.
-                    fp = sess.fingerprint
-                    headers = {
-                        ":authority": "www.instagram.com",
-                        ":method": method,
-                        ":path": url.replace("https://www.instagram.com", ""),
-                        ":scheme": "https",
-                        "accept": "*/*",
-                        "accept-encoding": "gzip, deflate, br, zstd",
-                        "accept-language": "en-US,en;q=0.9",
-                        "cache-control": "no-cache",
-                        "content-type": "application/x-www-form-urlencoded",
-                        "cookie": sess.cookie_string,
-                        "origin": "https://www.instagram.com",
-                        "pragma": "no-cache",
-                        "priority": "u=1, i",
-                        "referer": "https://www.instagram.com/",
-                        "sec-ch-prefers-color-scheme": "dark",
-                        "sec-ch-ua": fp.sec_ch_ua,
-                        "sec-ch-ua-full-version-list": fp.sec_ch_ua_full_version_list,
-                        "sec-ch-ua-mobile": "?0",
-                        "sec-ch-ua-model": '""',
-                        "sec-ch-ua-platform": fp.sec_ch_ua_platform,
-                        "sec-ch-ua-platform-version": fp.sec_ch_ua_platform_version,
-                        "sec-fetch-dest": "empty",
-                        "sec-fetch-mode": "cors",
-                        "sec-fetch-site": "same-origin",
-                        "user-agent": fp.user_agent,
-                        "x-asbd-id": "359341",
-                        "x-csrftoken": sess.csrf_token,
-                        "x-ig-app-id": IG_APP_ID,
-                        "x-ig-www-claim": sess.ig_www_claim or "0",
-                        "x-instagram-ajax": sess.x_instagram_ajax or LATEST_SERVER_REVISION,
-                        "x-requested-with": "XMLHttpRequest",
-                    }
-                else:
-                    # Fallback — no fingerprint (should not happen for auth'd sessions)
-                    if method == "POST":
-                        headers = self._anti_detect.get_post_headers(sess.csrf_token)
-                    else:
-                        headers = self._anti_detect.get_request_headers(sess.csrf_token)
+                # Build headers using shared utility
 
-                    identity = self._anti_detect.get_identity()
-                    headers["user-agent"] = identity.user_agent
-                    headers["sec-ch-ua"] = identity.sec_ch_ua
-                    headers["sec-ch-ua-mobile"] = identity.sec_ch_ua_mobile
-                    headers["sec-ch-ua-platform"] = identity.sec_ch_ua_platform
-                    if sess.ig_www_claim:
-                        headers["x-ig-www-claim"] = sess.ig_www_claim
-                    if sess.x_instagram_ajax:
-                        headers["x-instagram-ajax"] = sess.x_instagram_ajax
-                    headers.setdefault("x-asbd-id", "359341")
-                    headers.setdefault("sec-fetch-dest", "empty")
-                    headers.setdefault("sec-fetch-mode", "cors")
-                    headers.setdefault("sec-fetch-site", "same-origin")
-                    headers["cookie"] = sess.cookie_string
+                headers = build_request_headers(
 
+                    method=method,
+
+                    url=url,
+
+                    sess=sess,
+
+                    anti_detect=self._anti_detect,
+
+                    raw_data=raw_data,
+
+                    raw_headers=raw_headers,
+
+                )
                 # Proxy
                 proxy_dict = self._proxy_mgr.get_curl_proxy()
                 if proxy_dict:
@@ -569,7 +527,8 @@ class HttpClient:
                         # Normal POST redirect (like/unlike/comment success)
                         try:
                             return response.json()
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"POST redirect JSON parse failed: {e}")
                             return {"status": "ok", "redirected": True}
                     else:
                         # Normal GET redirect — retry
@@ -759,8 +718,8 @@ class HttpClient:
         if self._curl_session:
             try:
                 self._curl_session.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Session close cleanup: {e}")
             self._curl_session = None
 
     def __enter__(self):

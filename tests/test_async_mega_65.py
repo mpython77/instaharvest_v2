@@ -160,6 +160,7 @@ class TestAsyncGraphQL:
 
     def test_get_tagged_posts(self):
         api, client = self._make()
+        api.get_profile_tagged_v2 = AsyncMock(side_effect=Exception("force fallback"))
         client.get.return_value = {"data": {"user": {"edge_user_to_photos_of_you": {
             "count": 30, "page_info": {"has_next_page": False},
             "edges": [{"node": {

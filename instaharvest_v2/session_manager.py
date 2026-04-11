@@ -252,6 +252,13 @@ class SessionManager:
         auto_save_path: Optional[str] = None,
         auto_save_interval: int = 20,
     ):
+        """
+        Init.
+
+        Args:
+            auto_save_path: Parameter auto_save_path
+            auto_save_interval: Parameter auto_save_interval
+        """
         self._sessions: List[SessionInfo] = []
         self._index = 0
         self._lock = threading.Lock()
@@ -418,8 +425,8 @@ class SessionManager:
                     if rur_val != session.rur:
                         session.rur = rur_val
                         updated.append("rur")
-        except Exception:
-            pass  # Never fail on cookie capture
+        except Exception as e:
+            logger.debug(f"[Session] Cookie capture skipped: {e}")
 
         # ─── From response headers ───────────────────
         try:
@@ -429,8 +436,8 @@ class SessionManager:
                 session.ig_www_claim = www_claim
                 session._cookie_updates += 1
                 updated.append(f"ig_www_claim={www_claim[:20]}...")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[Session] Header capture skipped: {e}")
 
         if updated:
             logger.debug(f"[Session] Updated: {', '.join(updated)}")
@@ -601,8 +608,8 @@ class SessionManager:
             try:
                 rj = resp.json()
                 status = rj.get("status", rj.get("message", "?"))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[Session Refresh] JSON parse skipped: {e}")
 
             if updated:
                 logger.info(
@@ -691,13 +698,31 @@ class SessionManager:
 
     @property
     def session_count(self) -> int:
+        """
+        Session count.
+
+        Returns:
+            Return value of session_count
+        """
         return len(self._sessions)
 
     @property
     def active_count(self) -> int:
+        """
+        Active count.
+
+        Returns:
+            Return value of active_count
+        """
         return sum(1 for s in self._sessions if s.is_active and s.is_valid)
 
     def get_all_sessions(self) -> List[SessionInfo]:
+        """
+        Get all sessions.
+
+        Returns:
+            Return value of get_all_sessions
+        """
         return list(self._sessions)
 
     # ══════════════════════════════════════════════════════════════

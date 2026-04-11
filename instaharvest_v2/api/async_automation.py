@@ -44,6 +44,16 @@ class AutomationLimits:
         stop_on_challenge: bool = True,
         stop_on_rate_limit: bool = True,
     ):
+        """
+        Init.
+
+        Args:
+            max_per_hour: Parameter max_per_hour
+            min_delay: Parameter min_delay
+            max_delay: Parameter max_delay
+            stop_on_challenge: Parameter stop_on_challenge
+            stop_on_rate_limit: Parameter stop_on_rate_limit
+        """
         self.max_per_hour = max_per_hour
         self.min_delay = min_delay
         self.max_delay = max_delay
@@ -91,6 +101,16 @@ class AsyncAutomationAPI:
     """
 
     def __init__(self, client, direct_api, media_api, friendships_api, stories_api=None):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            direct_api: Parameter direct_api
+            media_api: Parameter media_api
+            friendships_api: Parameter friendships_api
+            stories_api: Parameter stories_api
+        """
         self._client = client
         self._direct = direct_api
         self._media = media_api
@@ -418,8 +438,8 @@ class AsyncAutomationAPI:
                         self._stories.mark_seen(story_id, user_id)
                         seen_count += 1
                         await self._smart_delay(limits, factor=0.3)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"mark_seen failed: {e}")
 
             await self._log_action("watch_stories", username, f"{seen_count} stories")
             logger.info(f"👁️ Watched {seen_count} stories of @{username}")
@@ -451,7 +471,7 @@ class AsyncAutomationAPI:
                 cursor = result.get("next_max_id")
                 if not cursor:
                     break
-            except Exception:
+            except Exception as e:
                 break
         return followers
 
@@ -462,7 +482,7 @@ class AsyncAutomationAPI:
             if isinstance(user, dict):
                 return user.get("data", {}).get("user", user)
             return {"username": username}
-        except Exception:
+        except Exception as e:
             return {"username": username}
 
     async def _get_hashtag_posts(self, tag: str, count: int) -> List[Dict]:
@@ -511,4 +531,10 @@ class AsyncAutomationAPI:
 
     @property
     async def action_log(self) -> List[Dict]:
+        """
+        Action log.
+
+        Returns:
+            Return value of action_log
+        """
         return self._action_log[-100:]

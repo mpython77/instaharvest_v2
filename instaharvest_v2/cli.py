@@ -20,6 +20,12 @@ import os
 
 
 def create_parser() -> argparse.ArgumentParser:
+    """
+    Create parser.
+
+    Returns:
+        Return value of create_parser
+    """
     parser = argparse.ArgumentParser(
         prog="instaharvest_v2",
         description="🔥 InstaHarvest v2 — Instagram Private API CLI",
@@ -163,6 +169,9 @@ def pp(data, as_json: bool = False):
 
 
 def main():
+    """
+    Main.
+    """
     parser = create_parser()
     args = parser.parse_args()
 

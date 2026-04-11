@@ -23,6 +23,11 @@ Concurrency control:
 
 import asyncio
 import json
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    HAS_ORJSON = False
 import logging
 import random
 import re
@@ -60,10 +65,22 @@ from .config import (
 logger = logging.getLogger("instaharvest_v2.async_anon")
 
 
+def _fast_json_loads(text: Union[str, bytes]) -> Any:
+    if HAS_ORJSON:
+        return orjson.loads(text)
+    return json.loads(text)
+
+
 class AsyncAnonRateLimiter:
     """Async per-strategy rate limiter for anonymous requests."""
 
     def __init__(self, enabled: bool = True):
+        """
+        Init.
+
+        Args:
+            enabled: Parameter enabled
+        """
         self._enabled = enabled
         self._windows: Dict[str, List[float]] = {}
         self._limits = ANON_RATE_LIMITS if enabled else ANON_RATE_LIMITS_UNLIMITED
@@ -137,6 +154,7 @@ class AsyncAnonClient:
         max_concurrency: int = 0,
         profile_strategies=None,
         posts_strategies=None,
+        cookies: Optional[Dict[str, str]] = None,
     ):
         """
         Args:
@@ -177,6 +195,9 @@ class AsyncAnonClient:
         self._profile_strategies = parse_profile_strategies(profile_strategies)
         self._posts_strategies = parse_posts_strategies(posts_strategies)
 
+        # Cookies for authenticated public scraping (e.g. from active session)
+        self._cookies = cookies or {}
+
     # ═══════════════════════════════════════════════════════════
     # SESSION MANAGEMENT
     # ═══════════════════════════════════════════════════════════
@@ -200,8 +221,8 @@ class AsyncAnonClient:
             if self._session:
                 try:
                     await self._session.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to close session: {e}")
             identity = self._anti_detect.get_identity(force_new=True)
             self._session = AsyncSession(
                 impersonate=identity.impersonation,
@@ -303,6 +324,8 @@ class AsyncAnonClient:
             kwargs["proxies"] = proxy_dict
         if post_data:
             kwargs["data"] = post_data
+        if getattr(self, "_cookies", None):
+            kwargs["cookies"] = self._cookies
 
         last_error = None
         for attempt in range(MAX_RETRIES + 1):
@@ -316,8 +339,8 @@ class AsyncAnonClient:
                     self._request_count += 1
                     try:
                         self._traffic_bytes += len(response.content)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Traffic bytes count failed: {e}")
 
                 # Report proxy success
                 if proxy_url:
@@ -447,7 +470,7 @@ class AsyncAnonClient:
         )
         if shared_data_match:
             try:
-                shared = json.loads(shared_data_match.group(1))
+                shared = _fast_json_loads(shared_data_match.group(1))
                 user_data = (
                     shared.get("entry_data", {})
                     .get("ProfilePage", [{}])[0]
@@ -456,8 +479,8 @@ class AsyncAnonClient:
                 )
                 if user_data:
                     result = self._parse_graphql_user(user_data)
-            except (json.JSONDecodeError, IndexError, KeyError):
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to parse _sharedData: {e}")
 
         # Method 2: window.__additionalDataLoaded
         if not result:
@@ -467,14 +490,14 @@ class AsyncAnonClient:
             )
             if additional_match:
                 try:
-                    data = json.loads(additional_match.group(1))
+                    data = _fast_json_loads(additional_match.group(1))
                     user_data = data.get("graphql", {}).get("user", {})
                     if not user_data:
                         user_data = data.get("user", {})
                     if user_data:
                         result = self._parse_graphql_user(user_data)
-                except (json.JSONDecodeError, KeyError):
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to parse __additionalDataLoaded: {e}")
 
         # Method 3: JSON-LD schema
         if not result:
@@ -484,7 +507,7 @@ class AsyncAnonClient:
             )
             if ld_match:
                 try:
-                    ld = json.loads(ld_match.group(1))
+                    ld = _fast_json_loads(ld_match.group(1))
                     result = {
                         "username": ld.get("alternateName", "").lstrip("@"),
                         "full_name": ld.get("name", ""),
@@ -492,8 +515,8 @@ class AsyncAnonClient:
                         "profile_pic_url": ld.get("image", ""),
                         "url": ld.get("url", ""),
                     }
-                except json.JSONDecodeError:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to parse JSON-LD schema: {e}")
 
         # Method 4: Meta tags fallback
         if not result:
@@ -558,12 +581,12 @@ class AsyncAnonClient:
         )
         if media_match:
             try:
-                data = json.loads(media_match.group(1))
+                data = _fast_json_loads(media_match.group(1))
                 shortcode_media = data.get("shortcode_media", {})
                 if shortcode_media:
                     result = self._parse_embed_media(shortcode_media)
-            except json.JSONDecodeError:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to parse embed extra data: {e}")
 
         if not result:
             result = self._parse_embed_html(html, shortcode)
@@ -865,8 +888,8 @@ class AsyncAnonClient:
             data = await self.get_web_api(f"/media/{media_pk}/info/")
             if data and data.get("items"):
                 return data["items"][0]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Web API fallback failed for shortcode {shortcode}: {e}")
         return None
 
     # ═══════════════════════════════════════════════════════════
@@ -1407,24 +1430,48 @@ class AsyncAnonClient:
         if self._session:
             try:
                 await self._session.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to close session: {e}")
             self._session = None
 
     @property
     def request_count(self) -> int:
+        """
+        Request count.
+
+        Returns:
+            Return value of request_count
+        """
         return self._request_count
 
     @property
     def error_count(self) -> int:
+        """
+        Error count.
+
+        Returns:
+            Return value of error_count
+        """
         return self._error_count
 
     @property
     def active_requests(self) -> int:
+        """
+        Active requests.
+
+        Returns:
+            Return value of active_requests
+        """
         return self._active_requests
 
     @property
     def stats(self) -> Dict:
+        """
+        Stats.
+
+        Returns:
+            Return value of stats
+        """
         return {
             "requests": self._request_count,
             "errors": self._error_count,

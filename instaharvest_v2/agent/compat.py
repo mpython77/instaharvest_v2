@@ -168,22 +168,22 @@ def setup_console_encoding():
                 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
             if hasattr(sys.stderr, "reconfigure"):
                 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Console encoding reconfigure failed: {e}")
 
         # Set console code page to UTF-8
         try:
             os.system("chcp 65001 >nul 2>&1")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Console code page change failed: {e}")
     else:
         # Linux/macOS — ensure UTF-8
         if hasattr(sys.stdout, "reconfigure"):
             try:
                 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
                 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Unix encoding reconfigure failed: {e}")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -219,7 +219,8 @@ def atomic_write(filepath: str, content: str, encoding: str = "utf-8"):
                 os.replace(tmp_path, filepath)
             else:
                 os.rename(tmp_path, filepath)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Atomic write rename failed: {e}")
             # Cleanup temp file on error
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)

@@ -470,7 +470,7 @@ def handle_list_sessions(args: Dict, **kw) -> str:
             mtime = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M")
             name = os.path.splitext(filename)[0]
             sessions.append(f"  📄 {name}  ({size:,} bytes, {mtime})")
-        except Exception:
+        except Exception as e:
             sessions.append(f"  📄 {os.path.splitext(filename)[0]}  (error reading)")
 
     if not sessions:
@@ -544,7 +544,7 @@ def handle_get_system_info(args: Dict, **kw) -> str:
                 f"{used / (1024**3):.1f} GB used, "
                 f"{free / (1024**3):.1f} GB free"
             )
-        except Exception:
+        except Exception as e:
             disk_info = "  Disk: N/A"
 
         lines = [

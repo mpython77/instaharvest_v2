@@ -73,6 +73,15 @@ class PublicProfile(InstaModel):
     @field_validator("ig_id", mode="before")
     @classmethod
     def coerce_ig_id(cls, v: Any) -> str:
+        """
+        Coerce ig id.
+
+        Args:
+            v: Parameter v
+
+        Returns:
+            Return value of coerce_ig_id
+        """
         if v is None:
             return ""
         return str(v)
@@ -80,6 +89,15 @@ class PublicProfile(InstaModel):
     @field_validator("followers", "following", "posts_count", mode="before")
     @classmethod
     def coerce_int(cls, v: Any) -> int:
+        """
+        Coerce int.
+
+        Args:
+            v: Parameter v
+
+        Returns:
+            Return value of coerce_int
+        """
         if v is None:
             return 0
         if isinstance(v, dict):
@@ -90,6 +108,15 @@ class PublicProfile(InstaModel):
                      "profile_pic_url", mode="before")
     @classmethod
     def coerce_str(cls, v: Any) -> str:
+        """
+        Coerce str.
+
+        Args:
+            v: Parameter v
+
+        Returns:
+            Return value of coerce_str
+        """
         if v is None:
             return ""
         return str(v)
@@ -216,6 +243,15 @@ class PublicPost(InstaModel):
     @field_validator("post_id", mode="before")
     @classmethod
     def coerce_post_id(cls, v: Any) -> str:
+        """
+        Coerce post id.
+
+        Args:
+            v: Parameter v
+
+        Returns:
+            Return value of coerce_post_id
+        """
         if v is None:
             return ""
         return str(v)
@@ -223,17 +259,18 @@ class PublicPost(InstaModel):
     @field_validator("likes", "comments", "reels_views", mode="before")
     @classmethod
     def coerce_int(cls, v: Any) -> int:
+        """
+        Coerce int.
+
+        Args:
+            v: Parameter v
+
+        Returns:
+            Return value of coerce_int
+        """
         if v is None:
             return 0
         return int(v)
-
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, datetime):
-            return v
         if isinstance(v, (int, float)):
             return datetime.utcfromtimestamp(v)
         if isinstance(v, str):
@@ -488,16 +525,34 @@ class PublicDataReport(InstaModel):
     @computed_field
     @property
     def total_profiles(self) -> int:
+        """
+        Total profiles.
+
+        Returns:
+            Return value of total_profiles
+        """
         return len(self.profiles)
 
     @computed_field
     @property
     def total_posts(self) -> int:
+        """
+        Total posts.
+
+        Returns:
+            Return value of total_posts
+        """
         return len(self.posts)
 
     @computed_field
     @property
     def total_hashtag_posts(self) -> int:
+        """
+        Total hashtag posts.
+
+        Returns:
+            Return value of total_hashtag_posts
+        """
         return len(self.hashtag_posts)
 
     @computed_field

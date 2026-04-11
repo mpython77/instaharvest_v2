@@ -109,6 +109,7 @@
             font-weight: 700;
             background: linear-gradient(135deg, var(--accent2), #c084fc);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent
         }
 
@@ -523,6 +524,7 @@
             position: absolute;
             inset: 0;
             background: rgba(8, 8, 13, .85);
+            -webkit-backdrop-filter: blur(4px);
             backdrop-filter: blur(4px);
             display: flex;
             flex-direction: column;
@@ -808,6 +810,78 @@
             font-family: 'Inter', sans-serif
         }
 
+        .chat-welcome {
+            text-align: center;
+            padding: 50px 20px;
+            color: var(--text3)
+        }
+
+        .chat-welcome-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: .3
+        }
+
+        .chat-welcome-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text)
+        }
+
+        .chat-welcome-sub {
+            font-size: 12px;
+            margin-top: 6px;
+            max-width: 350px;
+            margin-left: auto;
+            margin-right: auto
+        }
+
+        .chat-welcome-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            justify-content: center;
+            margin-top: 20px
+        }
+
+        .chat-header-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 6px;
+            align-items: center
+        }
+
+        .ai-provider-label {
+            font-size: 10px;
+            color: var(--text3)
+        }
+
+        /* UTILITIES */
+        .d-none {
+            display: none !important
+        }
+
+        .resize-v {
+            resize: vertical
+        }
+
+        .flex-row-wrap {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap
+        }
+
+        .hint-text {
+            font-size: 12px;
+            color: var(--text2);
+            margin-bottom: 10px
+        }
+
+        .loading-text-dim {
+            font-size: 12px;
+            color: var(--text3)
+        }
+
         .chat-action-btn:hover {
             border-color: var(--accent);
             color: var(--accent2);
@@ -950,6 +1024,7 @@
             color: var(--accent2);
             cursor: pointer;
             margin-top: 4px;
+            -webkit-user-select: none;
             user-select: none;
         }
 
@@ -1274,6 +1349,8 @@
                     class="nav-icon">🗂️</span><span>Collections</span></div>
             <div class="nav-item" data-panel="exporter" onclick="switchPanel(this)"><span
                     class="nav-icon">📤</span><span>Export</span></div>
+            <div class="nav-item" data-panel="feed" onclick="switchPanel(this)"><span
+                    class="nav-icon">🏷️</span><span>Tagged</span></div>
             <div class="nav-item" data-panel="hashtrack" onclick="switchPanel(this)"><span
                     class="nav-icon">🎯</span><span>Hashtag Track</span></div>
         </nav>
@@ -1289,7 +1366,7 @@
             <div class="header-badges">
                 <span class="badge badge-accent" id="reqCount">0 req</span>
                 <span class="badge badge-success" id="serverStatus">● Live</span>
-                <span class="badge badge-warning" id="aiStatus" style="display:none">🤖 AI</span>
+                <span class="badge badge-warning d-none" id="aiStatus">🤖 AI</span>
             </div>
         </div>
 
@@ -1300,25 +1377,23 @@
                 <div class="panel-content active ai-full" id="panel-ai">
                     <div class="card">
                         <div class="card-header">🤖 AI Agent Chat
-                            <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-                                <span style="font-size:10px;color:var(--text3)" id="aiProviderLabel"></span>
+                            <span class="chat-header-actions">
+                                <span class="ai-provider-label" id="aiProviderLabel"></span>
                                 <button class="chat-action-btn" onclick="aiReset()" title="Clear conversation">🗑
                                     Reset</button>
                             </span>
                         </div>
                         <div class="chat-wrap">
                             <div class="chat-messages" id="chatMessages">
-                                <div id="chatWelcome" style="text-align:center;padding:50px 20px;color:var(--text3)">
-                                    <div style="font-size:48px;margin-bottom:16px;opacity:.3">🤖</div>
-                                    <div style="font-size:16px;font-weight:600;color:var(--text)">InstaHarvest v2 AI Agent
+                                <div id="chatWelcome" class="chat-welcome">
+                                    <div class="chat-welcome-icon">🤖</div>
+                                    <div class="chat-welcome-title">InstaHarvest v2 AI Agent
                                     </div>
-                                    <div
-                                        style="font-size:12px;margin-top:6px;max-width:350px;margin-left:auto;margin-right:auto">
+                                    <div class="chat-welcome-sub">
                                         Give commands in natural language — AI does everything for you. Get profiles,
                                         analyze posts,
                                         compare followers, and more.</div>
-                                    <div
-                                        style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:20px">
+                                    <div class="chat-welcome-chips">
                                         <button class="quick-btn"
                                             onclick="aiSend('How many followers does cristiano have?')">👤 Follower
                                             Count</button>
@@ -1478,6 +1553,18 @@
                             <button class="btn btn-primary"
                                 onclick="callAPI('/api/feed/user/'+v('inp-fpk')+'?count='+v('inp-fcnt'))">📰
                                 Feed</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">🏷️ Tagged Posts</div>
+                        <div class="card-body">
+                            <div class="form-group"><label class="form-label">User PK</label><input class="form-input"
+                                    id="inp-tagpk" placeholder="173560420"></div>
+                            <div class="form-group"><label class="form-label">Count</label><input class="form-input"
+                                    id="inp-tagcnt" type="number" value="12" min="1" max="50"></div>
+                            <button class="btn btn-primary"
+                                onclick="callAPI('/api/feed/tagged/'+v('inp-tagpk')+'?count='+v('inp-tagcnt'))">🏷️
+                                Tagged Posts</button>
                         </div>
                     </div>
                     <div class="card">
@@ -1767,7 +1854,7 @@
                     <div class="card">
                         <div class="card-header">💬 DM Inbox</div>
                         <div class="card-body">
-                            <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Get your Direct Message
+                            <p class="hint-text">Get your Direct Message
                                 inbox.</p>
                             <button class="btn btn-primary" onclick="callAPI('/api/direct/inbox')">💬 Get Inbox</button>
                         </div>
@@ -1780,7 +1867,7 @@
                         <div class="card-header">💾 Saved Results</div>
                         <div class="card-body">
                             <div id="savedList">
-                                <p style="font-size:12px;color:var(--text3)">Loading...</p>
+                                <p class="loading-text-dim">Loading...</p>
                             </div>
                         </div>
                     </div>
@@ -1907,9 +1994,8 @@
                         <div class="card-body">
                             <div class="form-group"><label class="form-label">Usernames (one per line or
                                     comma-separated)</label>
-                                <textarea class="form-input" id="inp-batch" rows="4"
-                                    placeholder="cristiano&#10;leomessi&#10;neymarjr"
-                                    style="resize:vertical"></textarea>
+                                <textarea class="form-input resize-v" id="inp-batch" rows="4"
+                                    placeholder="cristiano&#10;leomessi&#10;neymarjr"></textarea>
                             </div>
                             <button class="btn btn-primary" onclick="batchScrape()">📋 Scrape All</button>
                         </div>
@@ -1918,8 +2004,8 @@
                         <div class="card-header">📄 Import from Text</div>
                         <div class="card-body">
                             <div class="form-group"><label class="form-label">Paste usernames</label>
-                                <textarea class="form-input" id="inp-batch-import" rows="3"
-                                    placeholder="@user1, @user2, user3" style="resize:vertical"></textarea>
+                                <textarea class="form-input resize-v" id="inp-batch-import" rows="3"
+                                    placeholder="@user1, @user2, user3"></textarea>
                             </div>
                             <button class="btn btn-primary" onclick="batchImport()">📄 Parse</button>
                         </div>
@@ -1995,11 +2081,11 @@
                     <div class="card">
                         <div class="card-header">📤 Export Last Result</div>
                         <div class="card-body">
-                            <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Export the last API result
+                            <p class="hint-text">Export the last API result
                                 to different formats.</p>
                             <div class="form-group"><label class="form-label">Filename (optional)</label><input
                                     class="form-input" id="inp-export-name" placeholder="auto-generated"></div>
-                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <div class="flex-row-wrap">
                                 <button class="btn btn-primary" onclick="exportData('json')">📄 JSON</button>
                                 <button class="btn btn-primary" onclick="exportData('csv')">📊 CSV</button>
                                 <button class="btn btn-primary" onclick="exportData('xlsx')">📗 Excel</button>
@@ -2039,18 +2125,15 @@
             </div><!-- panel-form -->
 
             <!-- ═══ RESULT PANEL ═══ -->
-            <div class="panel-result" style="display:none">
+            <div class="panel-result d-none">
                 <div class="result-card">
                     <div class="result-header">
                         <div class="result-title"><span>📋</span><span id="resultLabel">Response</span></div>
                         <div class="result-actions">
                             <span class="result-meta" id="resultMeta"></span>
-                            <button class="btn btn-outline btn-sm" onclick="saveResult()" id="saveBtn"
-                                style="display:none">💾 Save</button>
-                            <button class="btn btn-outline btn-sm" onclick="exportCSV()" id="csvBtn"
-                                style="display:none">📥 CSV</button>
-                            <button class="btn btn-outline btn-sm" onclick="copyResult()" id="copyBtn"
-                                style="display:none">📋 Copy</button>
+                            <button class="btn btn-outline btn-sm d-none" onclick="saveResult()" id="saveBtn">💾 Save</button>
+                            <button class="btn btn-outline btn-sm d-none" onclick="exportCSV()" id="csvBtn">📥 CSV</button>
+                            <button class="btn btn-outline btn-sm d-none" onclick="copyResult()" id="copyBtn">📋 Copy</button>
                         </div>
                     </div>
                     <div class="result-body" id="resultBody">
@@ -2059,7 +2142,7 @@
                             <div class="result-empty-text">Ready to test</div>
                             <div class="result-empty-sub">Select an API and run, or chat with AI Agent</div>
                         </div>
-                        <div class="json-output" id="jsonOutput" style="display:none"></div>
+                        <div class="json-output d-none" id="jsonOutput"></div>
                     </div>
                 </div>
             </div>

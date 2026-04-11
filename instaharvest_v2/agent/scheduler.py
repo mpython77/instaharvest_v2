@@ -56,6 +56,12 @@ class ScheduledTask:
         return True
 
     def to_dict(self) -> Dict:
+        """
+        To dict.
+
+        Returns:
+            Return value of to_dict
+        """
         return {
             "task_id": self.task_id,
             "prompt": self.prompt,
@@ -100,6 +106,13 @@ class AgentScheduler:
     """
 
     def __init__(self, agent=None, persist_path: str = ".instaharvest_v2_schedule.json"):
+        """
+        Init.
+
+        Args:
+            agent: Parameter agent
+            persist_path: Parameter persist_path
+        """
         self._agent = agent
         self._tasks: Dict[str, ScheduledTask] = {}
         self._running = False
@@ -200,10 +213,22 @@ class AgentScheduler:
 
     @property
     def is_running(self) -> bool:
+        """
+        Is running.
+
+        Returns:
+            Return value of is_running
+        """
         return self._running
 
     @property
     def task_count(self) -> int:
+        """
+        Task count.
+
+        Returns:
+            Return value of task_count
+        """
         return len(self._tasks)
 
     # ═══════════════════════════════════════════════════════

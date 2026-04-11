@@ -20,6 +20,8 @@ from typing import List, Optional
 from .async_client import AsyncHttpClient
 from .session_manager import SessionManager
 from .proxy_manager import ProxyManager, RotationStrategy
+from .proxy_health import ProxyHealthChecker
+from .plugin import PluginManager
 from .anti_detect import AntiDetect
 from .async_rate_limiter import AsyncRateLimiter
 from .speed_modes import get_mode
@@ -106,6 +108,28 @@ class AsyncInstagram:
         debug_log_file: Optional[str] = None,
     ):
         # ─── DEBUG MODE ──────────────────────────────────────
+        """
+        Init.
+
+        Args:
+            session_id: Parameter session_id
+            csrf_token: Parameter csrf_token
+            ds_user_id: Parameter ds_user_id
+            mid: Parameter mid
+            ig_did: Parameter ig_did
+            datr: Parameter datr
+            user_agent: Parameter user_agent
+            mode: Parameter mode
+            rate_limiting: Parameter rate_limiting
+            challenge_callback: Parameter challenge_callback
+            session_file: Parameter session_file
+            retry: Parameter retry
+            log_level: Parameter log_level
+            log_file: Parameter log_file
+            log_format: Parameter log_format
+            debug: Parameter debug
+            debug_log_file: Parameter debug_log_file
+        """
         if debug:
             self._debug = DebugLogger(enabled=True, log_file=debug_log_file)
             set_debug_logger(self._debug)
@@ -137,6 +161,8 @@ class AsyncInstagram:
         self._challenge_handler = AsyncChallengeHandler(
             code_callback=challenge_callback,
         )
+        self._plugin_mgr = PluginManager(event_emitter=self._events)
+        self._proxy_health: Optional[ProxyHealthChecker] = None
 
         # Add initial session if provided
         if session_id:
@@ -166,7 +192,8 @@ class AsyncInstagram:
         self.users = AsyncUsersAPI(self._client)
         self.media = AsyncMediaAPI(self._client)
         self.friendships = AsyncFriendshipsAPI(self._client)
-        self.feed = AsyncFeedAPI(self._client)
+        self.graphql = AsyncGraphQLAPI(self._client)
+        self.feed = AsyncFeedAPI(self._client, graphql=self.graphql)
         self.stories = AsyncStoriesAPI(self._client)
         self.direct = AsyncDirectAPI(self._client)
         self.search = AsyncSearchAPI(self._client)
@@ -175,7 +202,6 @@ class AsyncInstagram:
         self.insights = AsyncInsightsAPI(self._client)
         self.account = AsyncAccountAPI(self._client)
         self.notifications = AsyncNotificationsAPI(self._client)
-        self.graphql = AsyncGraphQLAPI(self._client)
         self.location = AsyncLocationAPI(self._client)
         self.collections = AsyncCollectionsAPI(self._client)
         self.download = AsyncDownloadAPI(self._client)
@@ -247,10 +273,12 @@ class AsyncInstagram:
             import os
             if os.path.exists(self._session_file):
                 try:
-                    await self.auth.load_session(self._session_file)
-                    return True
-                except Exception:
-                    pass
+                    res = await self.auth.load_session(self._session_file)
+                    if res:
+                        self._sync_anon_cookies()
+                    return res
+                except Exception as e:
+                    logger.debug(f"Session refresh from file failed: {e}")
             return False
 
         return _refresh
@@ -263,7 +291,34 @@ class AsyncInstagram:
 
     async def load_session(self, filepath: str = "session.json") -> bool:
         """Load session from file."""
-        return await self.auth.load_session(filepath)
+        res = await self.auth.load_session(filepath)
+        if res:
+            self._sync_anon_cookies()
+        return res
+
+    def _sync_anon_cookies(self):
+        """
+        Sync session cookies to AnonClient.
+        Called after sessions are loaded post-init (from_env, from_cookie_file).
+        """
+        if self._session_mgr.session_count == 0:
+            return
+        sess = self._session_mgr.get_session()
+        if not sess:
+            return
+        cookies = {
+            "sessionid": sess.session_id,
+            "ds_user_id": sess.ds_user_id,
+        }
+        if getattr(sess, 'csrf_token', None):
+            cookies["csrftoken"] = sess.csrf_token
+        if getattr(sess, 'mid', None):
+            cookies["mid"] = sess.mid
+        if getattr(sess, 'ig_did', None):
+            cookies["ig_did"] = sess.ig_did
+        if getattr(sess, 'datr', None):
+            cookies["datr"] = sess.datr
+        self._anon_client._cookies = cookies
 
     # ─── FACTORY METHODS ─────────────────────────────────────
 
@@ -298,6 +353,7 @@ class AsyncInstagram:
                 ig_www_claim=data.get("ig_www_claim", ""),
                 rur=data.get("rur", ""),
             )
+            ig._sync_anon_cookies()
         return ig
 
     @classmethod
@@ -390,6 +446,45 @@ class AsyncInstagram:
                     user_agent=sess.user_agent,
                 )
 
+        instance._sync_anon_cookies()
+        return instance
+
+    @classmethod
+    def from_cookie_file(
+        cls,
+        cookie_path: str,
+        debug: bool = False,
+        **kwargs,
+    ) -> "AsyncInstagram":
+        """
+        Create async client from browser-exported cookie JSON file.
+
+        Usage:
+            async with AsyncInstagram.from_cookie_file("cookies.json") as ig:
+                user = await ig.users.get_by_username("cristiano")
+        """
+        instance = cls(debug=debug, **kwargs)
+        sess = instance._session_mgr.load_from_browser_cookies(cookie_path)
+        if not sess:
+            raise ValueError(f"Failed to load cookies from {cookie_path}")
+        instance._sync_anon_cookies()
+        return instance
+
+    @classmethod
+    def from_cookie_dir(
+        cls,
+        dir_path: str,
+        debug: bool = False,
+        **kwargs,
+    ) -> "AsyncInstagram":
+        """
+        Create async client with multiple sessions from a directory of cookie files.
+        """
+        instance = cls(debug=debug, **kwargs)
+        count = instance._session_mgr.load_from_cookie_dir(dir_path)
+        if count == 0:
+            raise ValueError(f"No valid cookie files found in {dir_path}")
+        instance._sync_anon_cookies()
         return instance
 
     # ─── PROXY MANAGEMENT ─────────────────────────────────────
@@ -404,6 +499,96 @@ class AsyncInstagram:
         """Add a single proxy."""
         return self.add_proxies([proxy_url])
 
+    def load_proxies_from_file(self, filepath: str) -> "AsyncInstagram":
+        """Load proxies from file (one proxy per line)."""
+        with open(filepath, "r") as f:
+            proxies = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+        self.add_proxies(proxies)
+        return self
+
+    def set_proxy_strategy(self, strategy: str) -> "AsyncInstagram":
+        """Change proxy rotation strategy."""
+        strat_map = {
+            "round_robin": RotationStrategy.ROUND_ROBIN,
+            "random": RotationStrategy.RANDOM,
+            "weighted": RotationStrategy.WEIGHTED,
+        }
+        self._proxy_mgr.set_strategy(strat_map.get(strategy, RotationStrategy.WEIGHTED))
+        return self
+
+    def start_proxy_health(self, interval: float = 300) -> None:
+        """Start background proxy health checker."""
+        if not self._proxy_health:
+            self._proxy_health = ProxyHealthChecker(
+                self._proxy_mgr, interval=interval, event_emitter=self._events,
+            )
+        self._proxy_health.start()
+
+    def stop_proxy_health(self) -> None:
+        """Stop proxy health checker."""
+        if self._proxy_health:
+            self._proxy_health.stop()
+
+    # ─── Settings & Identity ───────────────────────────────────
+
+    def set_rate_limiting(self, enabled: bool) -> "AsyncInstagram":
+        """Enable/disable rate limiting."""
+        self._rate_limiter.enabled = enabled
+        return self
+
+    def rotate_identity(self) -> "AsyncInstagram":
+        """Force browser identity rotation (fingerprint, UA, headers)."""
+        self._anti_detect.rotate_identity()
+        return self
+
+    def pool_status(self) -> dict:
+        """Get session pool monitoring status."""
+        return self._session_mgr.get_pool_status()
+
+    def add_session(self, session_id: str, csrf_token: str, ds_user_id: str, **kwargs) -> "AsyncInstagram":
+        """Add an additional account to the session pool."""
+        self._session_mgr.add_session(
+            session_id=session_id,
+            csrf_token=csrf_token,
+            ds_user_id=ds_user_id,
+            **kwargs,
+        )
+        return self
+
+    # ─── LOGIC & AUTH ────────────────────────────────────────
+
+    async def login(self, username: str, password: str, **kwargs):
+        """
+        Login with username/password.
+        Shortcut — calls await ig.auth.login().
+        """
+        return await self.auth.login(username, password, **kwargs)
+
+    async def warm_up(self) -> bool:
+        """
+        Warm up the session by doing a basic request to instagram.com.
+        """
+        sess = self._session_mgr.get_session()
+        if not sess:
+            return False
+        try:
+            await self._client.get("/", rate_category="get_default")
+            return getattr(sess, 'ig_www_claim', None) is not None
+        except Exception as e:
+            logger.debug(f"Warm-up failed: {e}")
+            return False
+
+    # ─── PLUGIN SYSTEM ───────────────────────────────────────
+
+    def use(self, plugin) -> "AsyncInstagram":
+        """Install a plugin. See Plugin base class."""
+        self._plugin_mgr.install(plugin, self)
+        return self
+
+    def remove_plugin(self, name: str) -> bool:
+        """Remove a plugin by name."""
+        return self._plugin_mgr.uninstall(name)
+
     # ─── CONTEXT MANAGER ─────────────────────────────────────
 
     async def __aenter__(self):
@@ -415,6 +600,7 @@ class AsyncInstagram:
     async def close(self) -> None:
         """Clean up async resources."""
         await self._client.close()
+        self.stop_proxy_health()
         # Close async anon client session
         if hasattr(self._anon_client, 'close'):
             await self._anon_client.close()

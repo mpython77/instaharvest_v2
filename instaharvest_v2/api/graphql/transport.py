@@ -27,6 +27,12 @@ class GraphQLTransport:
     """
 
     def __init__(self, client):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     # ═══════════════════════════════════════════════════════════

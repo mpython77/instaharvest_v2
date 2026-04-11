@@ -27,6 +27,7 @@ Each story/notification structure:
         - extra_actions: ["hide", "block", "remove_follower"] (for follow)
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from ..client import HttpClient
@@ -34,11 +35,19 @@ from ..models.notification import (
     Notification, NotifCounts, NotifInbox,
 )
 
+logger = logging.getLogger("instaharvest_v2.api.notifications")
+
 
 class NotificationsAPI:
     """Instagram notifications and activity API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     # ─── RAW METHODS (returns dict) ────────────────
@@ -206,5 +215,5 @@ class NotificationsAPI:
                 "/feed/timeline/",
                 rate_category="get_default",
             )
-        except Exception:
+        except Exception as e:
             return {"status": "fail", "message": "timeline requires active session"}

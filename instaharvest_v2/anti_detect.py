@@ -144,6 +144,9 @@ class AntiDetect:
     """
 
     def __init__(self):
+        """
+        Init.
+        """
         self._lock = threading.Lock()
         self._last_request_time: float = 0
         self._request_count: int = 0
@@ -505,14 +508,32 @@ class AntiDetect:
 
     @property
     def request_count(self) -> int:
+        """
+        Request count.
+
+        Returns:
+            Return value of request_count
+        """
         return self._request_count
 
     @property
     def escalation_level(self) -> int:
+        """
+        Escalation level.
+
+        Returns:
+            Return value of escalation_level
+        """
         return self._escalation_level
 
     @property
     def escalation_name(self) -> str:
+        """
+        Escalation name.
+
+        Returns:
+            Return value of escalation_name
+        """
         names = {0: "NORMAL", 1: "CAUTIOUS", 2: "STEALTH", 3: "PARANOID"}
         return names.get(self._escalation_level, "UNKNOWN")
 

@@ -7,8 +7,11 @@ Used by both AnonClient and AsyncAnonClient — eliminates code duplication.
 All functions are pure (no I/O, no self) — they transform dicts/strings.
 """
 
+import logging
 import re
 from typing import Dict, List
+
+logger = logging.getLogger("instaharvest_v2.parsers")
 
 
 def parse_count(text: str) -> int:
@@ -143,13 +146,19 @@ def parse_graphql_user(user: Dict) -> Dict:
     business_address = None
     addr_json = user.get("business_address_json")
     if addr_json:
-        import json as _json
         try:
             if isinstance(addr_json, str):
-                business_address = _json.loads(addr_json)
+                try:
+                    import orjson
+                    business_address = orjson.loads(addr_json)
+                except ImportError:
+                    import json as _json
+                    business_address = _json.loads(addr_json)
             else:
                 business_address = addr_json
-        except (ValueError, TypeError):
+        except Exception as e:
+            logger.debug(f"business_address JSON decode failed: {e}")
+            # Keep raw addr_json as fallback — JSON decode failed
             business_address = addr_json
 
     return {

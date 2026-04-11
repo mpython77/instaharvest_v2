@@ -39,6 +39,13 @@ class AccountInfo:
     """Metadata for a managed account."""
 
     def __init__(self, instagram_instance, source: str):
+        """
+        Init.
+
+        Args:
+            instagram_instance: Parameter instagram_instance
+            source: Parameter source
+        """
         self.ig = instagram_instance
         self.source = source  # env file path or identifier
         self.username: str = source  # Default to source, overwrite if we find ds_user_id
@@ -57,11 +64,17 @@ class AccountInfo:
                 extracted = str(getattr(sess, "ds_user_id", ""))
                 if extracted:
                     self.username = extracted
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Username extraction failed for {source}: {e}")
 
     @property
     def is_available(self) -> bool:
+        """
+        Is available.
+
+        Returns:
+            Return value of is_available
+        """
         return self.is_healthy and time.time() >= self.cooldown_until
 
 
@@ -82,6 +95,12 @@ class MultiAccountManager:
     """
 
     def __init__(self, env_files: Optional[List[str]] = None):
+        """
+        Init.
+
+        Args:
+            env_files: Parameter env_files
+        """
         self._accounts: List[AccountInfo] = []
         self._lock = threading.Lock()
         self._robin_index = 0
@@ -162,6 +181,12 @@ class MultiAccountManager:
 
     @property
     def count(self) -> int:
+        """
+        Count.
+
+        Returns:
+            Return value of count
+        """
         return len(self._accounts)
 
     # ═══════════════════════════════════════════════════════════
@@ -345,8 +370,8 @@ class MultiAccountManager:
         for acc in self._accounts:
             try:
                 acc.ig.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Account close failed: {e}")
         logger.info("🔒 All accounts closed")
 
     def __enter__(self):

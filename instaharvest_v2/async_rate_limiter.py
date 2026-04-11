@@ -47,6 +47,14 @@ class AsyncRateLimiter:
         proxy_count: int = 0,
         enabled: bool = True,
     ):
+        """
+        Init.
+
+        Args:
+            mode: Parameter mode
+            proxy_count: Parameter proxy_count
+            enabled: Parameter enabled
+        """
         self._mode: SpeedMode = get_mode(mode)
         self._enabled = enabled
         self._proxy_count = proxy_count
@@ -133,7 +141,7 @@ class AsyncRateLimiter:
                 await asyncio.sleep(delay)
                 self._wait_time_total += delay
 
-        except Exception:
+        except Exception as e:
             self._semaphore.release()
             raise
 
@@ -222,6 +230,13 @@ class AsyncRateLimiter:
     class _RateContext:
         """Async context manager for rate limiting."""
         def __init__(self, limiter: "AsyncRateLimiter", category: str):
+            """
+            Init.
+
+            Args:
+                limiter: Parameter limiter
+                category: Parameter category
+            """
             self._limiter = limiter
             self._category = category
 
@@ -252,10 +267,22 @@ class AsyncRateLimiter:
 
     @property
     def mode(self) -> SpeedMode:
+        """
+        Mode.
+
+        Returns:
+            Return value of mode
+        """
         return self._mode
 
     @property
     def stats(self) -> dict:
+        """
+        Stats.
+
+        Returns:
+            Return value of stats
+        """
         elapsed = max(1, time.time() - self._start_time)
         return {
             "mode": self._mode.name,

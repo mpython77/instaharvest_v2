@@ -96,22 +96,22 @@ agent = InstaAgent(ig=ig, permission=Permission.ASK_ONCE, ...)
 agent = InstaAgent(ig=ig, permission=Permission.FULL_ACCESS, ...)
 ```
 
-## Built-in Tools (10)
+## Built-in Tools (161)
 
-The agent has 10 tools it can use to complete tasks:
+The agent has 161 specialized tools it can use to complete tasks, organized into 10 core categories:
 
-| # | Tool | Description |
-|---|---|---|
-| 1 | `run_InstaHarvest v2_code` | Execute Python code in a secure sandbox |
-| 2 | `save_to_file` | Save results to CSV/JSON/TXT files |
-| 3 | `ask_user` | Ask the user for clarification |
-| 4 | `read_file` | Read existing files (CSV, JSON, TXT) |
-| 5 | `list_files` | List directory contents |
-| 6 | `download_media` | Download Instagram photos/videos |
-| 7 | `analyze_data` | Data analysis (stats, top N, trends) |
-| 8 | `http_request` | HTTP GET/POST to external APIs |
-| 9 | `create_chart` | Create charts (bar, line, pie) |
-| 10 | `search_web` | Search the internet (DuckDuckGo) |
+| Category | Description |
+|---|---|
+| **Instagram Core** | Get profiles, parse posts, extract comments and reels |
+| **Media & Social** | Follow, like, send DMs, and interact naturally |
+| **Analytics & Insights**| Compare accounts, calculate engagement, find peak posting times |
+| **Automation & Sched** | Run scheduled posts, watch accounts, auto-reply to followers |
+| **Bulk & Pipeline** | Mass-export to SQLite/CSV, bulk download media |
+| **Network & Search** | DuckDuckGo search, HTTP API interactions |
+| **Data Utilities** | JSON/CSV transformations, calculate stats, merge files |
+| **Auth & Sessions** | Securely login, validate sessions, rotate accounts |
+| **File & System** | Sandboxed file I/O operations (read/write docs) |
+| **Custom Code Engine** | Execute Python `ig.*` scripts dynamically safely |
 
 ## Constructor Parameters
 

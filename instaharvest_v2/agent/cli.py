@@ -20,6 +20,7 @@ Usage:
     python -m instaharvest_v2.agent.cli --compact "question"
 """
 
+import logging
 import argparse
 import os
 import sys
@@ -27,7 +28,16 @@ import time
 from typing import Any, Dict, Optional
 
 
+
+logger = logging.getLogger("instaharvest_v2.agent.cli")
+
 def create_parser() -> argparse.ArgumentParser:
+    """
+    Create parser.
+
+    Returns:
+        Return value of create_parser
+    """
     parser = argparse.ArgumentParser(
         prog="instaharvest_v2-agent",
         description="✻ InstaHarvest v2 Agent — Control Instagram with natural language",
@@ -135,6 +145,12 @@ class RichStepCallback:
     """
 
     def __init__(self, console):
+        """
+        Init.
+
+        Args:
+            console: Parameter console
+        """
         self.console = console
         self._thinking = False
 
@@ -250,7 +266,7 @@ def handle_slash_command(
                     "total_cost": cost_tracker.total_cost,
                     "session_requests": cost_tracker.session_requests,
                 }
-            except Exception:
+            except Exception as e:
                 cost_data = {"info": "Cost tracking not available"}
         else:
             cost_data = {"info": "Cost tracking disabled"}
@@ -451,6 +467,9 @@ def one_shot(agent, console, question: str):
 # ═══════════════════════════════════════════════════════════
 
 def main():
+    """
+    Main.
+    """
     parser = create_parser()
     args = parser.parse_args()
 
@@ -545,8 +564,8 @@ def main():
     try:
         from ..agent.templates import TemplateRunner
         templates_runner = TemplateRunner(agent)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"operation failed: {e}")
 
     # ─── Run Mode ───────────────────────────────────
 

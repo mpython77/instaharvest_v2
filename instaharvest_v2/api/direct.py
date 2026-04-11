@@ -14,6 +14,12 @@ class DirectAPI:
     """Instagram Direct Message API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def get_inbox(

@@ -168,6 +168,13 @@ class PermissionManager:
         level: Permission = Permission.ASK_EVERY,
         prompt_callback: Optional[Callable[[str, str], bool]] = None,
     ):
+        """
+        Init.
+
+        Args:
+            level: Parameter level
+            prompt_callback: Parameter prompt_callback
+        """
         self.level = level
         self._prompt = prompt_callback or self._default_prompt
         self._approved_types: Set[ActionType] = set()

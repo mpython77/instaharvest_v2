@@ -5,16 +5,25 @@ Account management: profile editing, picture change, privacy.
 """
 
 import json
+import logging
 from typing import Any, Dict, Optional
 
 import asyncio
 from ..async_client import AsyncHttpClient
+
+logger = logging.getLogger("instaharvest_v2.api.async_account")
 
 
 class AsyncAccountAPI:
     """Instagram account management API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     async def get_current_user(self) -> Dict[str, Any]:
@@ -39,31 +48,32 @@ class AsyncAccountAPI:
                     user_data = data.get("data", {}).get("user", {})
                     if user_data and user_data.get("username"):
                         return user_data
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"web_profile_info failed: {e}")
 
-                # Method 2: REST /accounts/current_user/
-                try:
-                    data = await self._client.get(
-                        "/accounts/current_user/?edit=true",
-                        rate_category="get_profile",
-                    )
-                    return data.get("user", data)
-                except Exception:
-                    pass
-
-                # Method 3: user info by ID
+                # Method 2: user info by ID (most compatible with curl_cffi)
                 try:
                     data = await self._client.get(
                         f"/users/{sess.ds_user_id}/info/",
                         rate_category="get_profile",
                     )
                     return data.get("user", data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"user info by ID failed: {e}")
+
+                # Method 3: REST /accounts/current_user/ (strict UA validation)
+                try:
+                    data = await self._client.get(
+                        "/accounts/current_user/?edit=true",
+                        rate_category="get_profile",
+                    )
+                    return data.get("user", data)
+                except Exception as e:
+                    logger.debug(f"current_user endpoint failed: {e}")
 
             return {"status": "fail", "message": "current_user requires active web session"}
-        except Exception:
+        except Exception as e:
+            logger.debug(f"get_current_user all methods failed: {e}")
             return {"status": "fail", "message": "current_user requires active web session"}
 
     async def edit_profile(

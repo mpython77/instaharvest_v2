@@ -48,6 +48,15 @@ class SchedulerJob:
         params: Dict[str, Any],
         job_id: Optional[str] = None,
     ):
+        """
+        Init.
+
+        Args:
+            job_type: Parameter job_type
+            scheduled_at: Parameter scheduled_at
+            params: Parameter params
+            job_id: Parameter job_id
+        """
         self.id = job_id or uuid.uuid4().hex[:12]
         self.job_type = job_type  # post, story, reel, action
         self.scheduled_at = scheduled_at
@@ -60,6 +69,12 @@ class SchedulerJob:
         self.result: Optional[Dict] = None
 
     async def to_dict(self) -> Dict:
+        """
+        To dict.
+
+        Returns:
+            Return value of to_dict
+        """
         return {
             "id": self.id,
             "job_type": self.job_type,
@@ -73,6 +88,15 @@ class SchedulerJob:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SchedulerJob":
+        """
+        From dict.
+
+        Args:
+            data: Parameter data
+
+        Returns:
+            Return value of from_dict
+        """
         job = cls(
             job_type=data["job_type"],
             scheduled_at=datetime.fromisoformat(data["scheduled_at"]),
@@ -97,6 +121,14 @@ class AsyncSchedulerAPI:
     """
 
     def __init__(self, upload_api, stories_api, persist_path: str = "scheduler_jobs.json"):
+        """
+        Init.
+
+        Args:
+            upload_api: Parameter upload_api
+            stories_api: Parameter stories_api
+            persist_path: Parameter persist_path
+        """
         self._upload = upload_api
         self._stories = stories_api
         self._persist_path = persist_path
@@ -301,6 +333,12 @@ class AsyncSchedulerAPI:
 
     @property
     async def is_running(self) -> bool:
+        """
+        Is running.
+
+        Returns:
+            Return value of is_running
+        """
         return self._running
 
     async def _worker_loop(self) -> None:

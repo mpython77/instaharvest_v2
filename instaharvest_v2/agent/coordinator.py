@@ -45,10 +45,22 @@ class CoordinatorResult:
 
     @property
     def success(self) -> bool:
+        """
+        Success.
+
+        Returns:
+            Return value of success
+        """
         return all(r.success for r in self.results)
 
     @property
     def all_answers(self) -> List[str]:
+        """
+        All answers.
+
+        Returns:
+            Return value of all_answers
+        """
         return [r.answer for r in self.results]
 
     def __str__(self) -> str:
@@ -81,6 +93,18 @@ class AgentCoordinator:
         max_workers: int = 3,
         verbose: bool = True,
     ):
+        """
+        Init.
+
+        Args:
+            ig: Parameter ig
+            provider: Parameter provider
+            api_key: Parameter api_key
+            model: Parameter model
+            permission: Parameter permission
+            max_workers: Parameter max_workers
+            verbose: Parameter verbose
+        """
         self._ig = ig
         self._provider = provider
         self._api_key = api_key

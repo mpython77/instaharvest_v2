@@ -42,22 +42,6 @@ class Comment(InstaModel):
     mentions: List[str] = Field(default_factory=list)
     hashtags: List[str] = Field(default_factory=list)
 
-    @field_validator("pk", mode="before")
-    @classmethod
-    def coerce_pk(cls, v: Any) -> int:
-        if v is None:
-            return 0
-        return int(v)
-
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return datetime.fromtimestamp(v)
-        return v
-
     @classmethod
     def from_api(cls, data: Dict[str, Any]) -> "Comment":
         """Create Comment from API response."""

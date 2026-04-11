@@ -137,6 +137,9 @@ class WebStreamHandler(StreamHandler):
     """
 
     def __init__(self):
+        """
+        Init.
+        """
         super().__init__(mode="web")
         self._events = []
 

@@ -21,18 +21,6 @@ class DirectMessage(InstaModel):
     user_id: int = 0
     is_sent_by_viewer: bool = False
 
-    @field_validator("timestamp", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            # Instagram DM timestamps are in microseconds
-            if v > 1e15:
-                v = v / 1_000_000
-            return datetime.fromtimestamp(v)
-        return v
-
 
 class DirectThread(InstaModel):
     """DM conversation thread."""
@@ -45,14 +33,3 @@ class DirectThread(InstaModel):
     has_older: bool = False
     last_activity_at: Optional[datetime] = None
     unread_count: int = Field(default=0, alias="read_state")
-
-    @field_validator("last_activity_at", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            if v > 1e15:
-                v = v / 1_000_000
-            return datetime.fromtimestamp(v)
-        return v

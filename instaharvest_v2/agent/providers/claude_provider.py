@@ -29,6 +29,13 @@ class ClaudeProvider(BaseProvider):
     """Anthropic Claude provider with tool use."""
 
     def __init__(self, api_key: str, model: Optional[str] = None):
+        """
+        Init.
+
+        Args:
+            api_key: Parameter api_key
+            model: Parameter model
+        """
         super().__init__(api_key, model or DEFAULT_MODEL)
         self._client = None
 
@@ -51,6 +58,17 @@ class ClaudeProvider(BaseProvider):
         tools: Optional[List[Dict]] = None,
         temperature: float = 0.1,
     ) -> ProviderResponse:
+        """
+        Generate.
+
+        Args:
+            messages: Parameter messages
+            tools: Parameter tools
+            temperature: Parameter temperature
+
+        Returns:
+            Return value of generate
+        """
         client = self._get_client()
 
         # Extract system message
@@ -168,4 +186,10 @@ class ClaudeProvider(BaseProvider):
 
     @property
     def provider_name(self) -> str:
+        """
+        Provider name.
+
+        Returns:
+            Return value of provider_name
+        """
         return f"Claude ({self.model})"

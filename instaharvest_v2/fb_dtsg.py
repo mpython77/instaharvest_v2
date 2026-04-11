@@ -43,6 +43,12 @@ class FbDtsgResult:
 
     @property
     def is_valid(self) -> bool:
+        """
+        Is valid.
+
+        Returns:
+            Return value of is_valid
+        """
         return bool(self.fb_dtsg)
 
 
@@ -245,8 +251,8 @@ class AsyncFbDtsgProvider:
                 new_claim = response.headers.get("x-ig-set-www-claim", "")
                 if new_claim:
                     result.claim = new_claim
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[fb_dtsg] Claim header extraction failed: {e}")
 
             # Parse HTML
             result = self._parse_html(html, result)

@@ -256,3 +256,5 @@ ANON_REQUEST_DELAYS_UNLIMITED = {
     "after_error": {"min": 0.0, "max": 0.0},
     "after_rate_limit": {"min": 0.0, "max": 0.0},
 }
+
+LATEST_SERVER_REVISION = "1034642761"

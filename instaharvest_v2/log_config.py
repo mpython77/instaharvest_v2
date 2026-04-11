@@ -179,6 +179,13 @@ class DebugLogger:
     """
 
     def __init__(self, enabled: bool = False, log_file: Optional[str] = None):
+        """
+        Init.
+
+        Args:
+            enabled: Parameter enabled
+            log_file: Parameter log_file
+        """
         self.enabled = enabled
         self._logger = logging.getLogger("instaharvest_v2.debug")
         if enabled:

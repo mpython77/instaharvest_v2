@@ -9,7 +9,6 @@ Uses AnonClient's configurable strategy fallback chain under the hood.
 
 import re
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Callable
 
 from ..anon_client import AnonClient
@@ -32,6 +31,12 @@ class AsyncPublicAPI:
     """
 
     def __init__(self, anon_client: AnonClient):
+        """
+        Init.
+
+        Args:
+            anon_client: Parameter anon_client
+        """
         self._client = anon_client
 
     # ═══════════════════════════════════════════════════════════
@@ -87,8 +92,8 @@ class AsyncPublicAPI:
                 uid = web_profile.get("id") or web_profile.get("pk")
                 if uid:
                     return int(uid)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[Public] Web API user_id fallback failed: {e}")
 
         return None
 

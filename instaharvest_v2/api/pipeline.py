@@ -36,6 +36,15 @@ class PipelineAPI:
     """
 
     def __init__(self, client, users_api, friendships_api, media_api):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            users_api: Parameter users_api
+            friendships_api: Parameter friendships_api
+            media_api: Parameter media_api
+        """
         self._client = client
         self._users = users_api
         self._friendships = friendships_api
@@ -402,7 +411,7 @@ class PipelineAPI:
                 if cursor:
                     params["max_id"] = cursor
                 result = self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params=params)
-            except Exception:
+            except Exception as e:
                 break
             if not result or not isinstance(result, dict):
                 break
@@ -427,7 +436,7 @@ class PipelineAPI:
                     result = self._friendships.get_followers(user_id, count=50, after=cursor)
                 else:
                     result = self._friendships.get_following(user_id, count=50, after=cursor)
-            except Exception:
+            except Exception as e:
                 break
             users = result.get("users", [])
             if not users:

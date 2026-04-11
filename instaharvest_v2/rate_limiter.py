@@ -24,6 +24,12 @@ class RateLimiter:
     """
 
     def __init__(self, enabled: bool = True):
+        """
+        Init.
+
+        Args:
+            enabled: Parameter enabled
+        """
         self._enabled = enabled
         self._windows: dict[str, deque] = defaultdict(deque)
         self._condition = threading.Condition()
@@ -112,8 +118,23 @@ class RateLimiter:
 
     @property
     def enabled(self) -> bool:
+        """
+        Enabled.
+
+        Returns:
+            Return value of enabled
+        """
         return self._enabled
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
+        """
+        Enabled.
+
+        Args:
+            value: Parameter value
+
+        Returns:
+            Return value of enabled
+        """
         self._enabled = value

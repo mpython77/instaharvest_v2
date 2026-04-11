@@ -47,6 +47,12 @@ class AsyncDiscoverAPI:
     """
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     # ─── Raw API ────────────────────────────────────────────────
@@ -272,8 +278,7 @@ class AsyncDiscoverAPI:
                 w.writeheader()
                 w.writerows(result["users"])
         """
-        import time as _time
-
+        import asyncio
         all_users: Dict[str, Dict[str, Any]] = {}  # username -> data
         layer_counts: Dict[int, int] = {}
 
@@ -365,13 +370,13 @@ class AsyncDiscoverAPI:
                         f"New: {new_count}, Total: {len(all_users)}"
                     )
 
-                _time.sleep(delay)
+                await asyncio.sleep(delay)
 
             except Exception as e:
                 logger.warning(f"Chain error for user_id={user_id}: {e}")
                 if layer > 0:
                     layer_counts[layer] = layer_counts.get(layer, 0) + 1
-                _time.sleep(delay * 2)
+                await asyncio.sleep(delay * 2)
 
         logger.info(
             f"Chain discovery complete: {len(all_users)} unique users "

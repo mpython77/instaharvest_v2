@@ -42,6 +42,12 @@ class ResponseHandler:
     """
 
     def __init__(self, session_manager: SessionManager):
+        """
+        Init.
+
+        Args:
+            session_manager: Parameter session_manager
+        """
         self._session_mgr = session_manager
 
     def _classify_error(
@@ -151,7 +157,8 @@ class ResponseHandler:
             try:
                 body = response.json()
                 return body
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Redirect JSON parse failed: {e}")
                 # POST redirect to login = session expired
                 logger.warning(
                     f"[ResponseHandler] {status} redirect → {location}"
@@ -168,7 +175,8 @@ class ResponseHandler:
         if status in (400, 403):
             try:
                 body = response.json()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Client error JSON parse failed: {e}")
                 body = {}
 
             # Login required
@@ -244,9 +252,18 @@ class ResponseHandler:
 
         # ─── Parse JSON ───────────────────────────────────────
         try:
-            data = response.json()
-        except Exception:
-            text = response.text[:200]
+            if hasattr(response, "content") and isinstance(response.content, bytes) and response.content:
+                try:
+                    import orjson
+                    data = orjson.loads(response.content)
+                except Exception as e:
+                    logger.debug(f"orjson parse failed, falling back: {e}")
+                    data = response.json()
+            else:
+                data = response.json()
+        except Exception as e:
+            logger.debug(f"JSON response parse failed: {e}")
+            text = getattr(response, "text", "")[:200]
             if "login" in text.lower() or "LoginAndSignupPage" in text:
                 _dbg().error(
                     error_type="LoginRequired",

@@ -42,7 +42,7 @@ graph TB
 | `vision.py` | `VisionAnalyzer` | Image analysis (multimodal) |
 | `webhook.py` | `WebhookNotifier` | Telegram/Discord/Email notifications |
 | `scheduler.py` | `AgentScheduler` | Cron-like task scheduling |
-| `tools.py` | `TOOL_HANDLERS` | 10 built-in tool implementations |
+| `tools/` | `TOOL_HANDLERS` | 161 built-in tool implementations across 10 modules |
 | `knowledge.py` | `SYSTEM_PROMPT` | Full InstaHarvest v2 knowledge base |
 | `providers/` | `BaseProvider` | 14 AI provider adapters |
 | `cli.py` | `main()` | Terminal interface |

@@ -168,6 +168,7 @@ class TestAsyncGraphQL:
 
     def test_get_tagged_posts(self):
         api, client = self._api()
+        api.get_profile_tagged_v2 = AsyncMock(side_effect=Exception("force fallback"))
         client.get.return_value = {"data": {"user": {"edge_user_to_photos_of_you": {
             "count": 1, "edges": [{"node": {"id": "t1", "shortcode": "TAG",
                 "owner": {"username": "owner1", "id": "o1"},
@@ -667,13 +668,14 @@ class TestAsyncPublic:
     def test_get_hashtag_posts(self):
         api, anon = self._api()
         anon.get_hashtag_posts_graphql.return_value = {"edge_hashtag_to_media": {"edges": []}}
-        anon._parse_timeline_edges = M(return_value=[])
+        anon._parse_timeline_edges = M(return_value=[1, 2])
         result = run(api.get_hashtag_posts("#test"))
         assert isinstance(result, list)
 
     def test_get_hashtag_posts_empty(self):
         api, anon = self._api()
         anon.get_hashtag_posts_graphql.return_value = None
+        api.get_hashtag_posts_v2 = AsyncMock(return_value={})
         result = run(api.get_hashtag_posts("test"))
         assert result == []
 

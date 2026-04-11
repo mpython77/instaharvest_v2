@@ -6,10 +6,9 @@ from unittest.mock import MagicMock as M, AsyncMock, patch, mock_open, PropertyM
 import pytest
 
 def run(coro):
+    loop = asyncio.new_event_loop()
     try:
-        loop = asyncio.new_event_loop()
         return loop.run_until_complete(asyncio.wait_for(coro, timeout=2.0))
-    except: return None
     finally:
         try:
             for t in asyncio.all_tasks(loop): t.cancel()
@@ -91,11 +90,14 @@ class TestAsyncClientRequest12:
         curl_sess.get.return_value = mock_resp
         curl_sess.post.return_value = mock_resp
 
+        rt_mock = M(max_retries=1, backoff_factor=0.1, retryable_statuses={429,500,502,503})
+        rt_mock.calculate_delay.return_value = 0.1
+        rt_mock.should_retry.return_value = True
         obj = mk(AsyncHttpClient,
             _session_mgr=sm, _proxy_mgr=pm, _anti_detect=ad, _rate_limiter=rl,
             _response_handler=rh, _challenge_handler=None,
             _session_refresh_callback=None,
-            _retry=M(max_retries=1, backoff_factor=0.1, retryable_statuses={429,500,502,503}),
+            _retry=rt_mock,
             _events=None, _async_session=curl_sess, _is_refreshing=False,
             _fb_dtsg_provider=fb, _rotation=rot)
         return obj
@@ -118,7 +120,9 @@ class TestAsyncClientRequest12:
     def test_no_session(self):
         c = self._mk()
         c._session_mgr.get_session.return_value = None
-        run(c.get("/test/"))  # should raise LoginRequired
+        from instaharvest_v2.exceptions import LoginRequired
+        with pytest.raises(LoginRequired):
+            run(c.get("/test/"))
 
     def test_with_proxy(self):
         c = self._mk()

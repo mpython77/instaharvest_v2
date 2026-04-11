@@ -5,15 +5,24 @@ Account management: profile editing, picture change, privacy.
 """
 
 import json
+import logging
 from typing import Any, Dict, Optional
 
 from ..client import HttpClient
+
+logger = logging.getLogger("instaharvest_v2.api.account")
 
 
 class AccountAPI:
     """Instagram account management API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def get_current_user(self) -> Dict[str, Any]:
@@ -38,8 +47,8 @@ class AccountAPI:
                     user_data = data.get("data", {}).get("user", {})
                     if user_data and user_data.get("username"):
                         return user_data
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"web_profile_info failed: {e}")
 
                 # Method 2: REST /accounts/current_user/
                 try:
@@ -48,8 +57,8 @@ class AccountAPI:
                         rate_category="get_profile",
                     )
                     return data.get("user", data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"current_user endpoint failed: {e}")
 
                 # Method 3: user info by ID
                 try:
@@ -58,11 +67,12 @@ class AccountAPI:
                         rate_category="get_profile",
                     )
                     return data.get("user", data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"user info by ID failed: {e}")
 
             return {"status": "fail", "message": "current_user requires active web session"}
-        except Exception:
+        except Exception as e:
+            logger.debug(f"get_current_user all methods failed: {e}")
             return {"status": "fail", "message": "current_user requires active web session"}
 
     def edit_profile(

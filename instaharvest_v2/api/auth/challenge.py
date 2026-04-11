@@ -73,7 +73,7 @@ class ChallengeMixin:
                 cp_url = data.get("checkpoint_url")
                 if cp_url:
                     return cp_url
-            except Exception:
+            except Exception as e:
                 # HTML response — check for challenge patterns
                 if "/challenge/" in resp.text:
                     match = re.search(r'(/challenge/[^"\'>\s]+)', resp.text)
@@ -161,8 +161,8 @@ class ChallengeMixin:
                 challenge_url = data.get("challenge", {}).get("url", "")
                 if challenge_url:
                     return challenge_url
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
 
         except Exception as e:
             logger.debug(f"[Auth] Probe strategy 4 failed: {e}")
@@ -250,7 +250,7 @@ class ChallengeMixin:
                             "username": username,
                             "challenge_resolved": True,
                         }
-                except Exception:
+                except Exception as e:
                     pass  # Fall through to ChallengeHandler
 
         except Exception as e:
@@ -429,7 +429,7 @@ class ChallengeMixin:
 
                 try:
                     login_result = resp.json()
-                except Exception:
+                except Exception as e:
                     logger.warning(f"[Auth] Re-login response not JSON: {resp.text[:200]}")
                     raise LoginError(f"Re-login after challenge failed: {resp.text[:200]}")
 

@@ -28,8 +28,8 @@ def _resolve_media_id(media_id_or_url: str, ig) -> str:
                 info = ig.media.get_by_shortcode(shortcode) if hasattr(ig.media, "get_by_shortcode") else None
                 if info:
                     return str(info.get("pk", info.get("id", shortcode)))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"_resolve_media_id failed: {e}")
             # Fallback: use shortcode_to_media_id
             if hasattr(ig.media, "_shortcode_to_media_id"):
                 return str(ig.media._shortcode_to_media_id(shortcode))

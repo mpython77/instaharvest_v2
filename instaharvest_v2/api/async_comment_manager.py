@@ -67,6 +67,13 @@ class AsyncCommentManagerAPI:
     """
 
     def __init__(self, client, media_api):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            media_api: Parameter media_api
+        """
         self._client = client
         self._media = media_api
         self._spam_patterns = [re.compile(p, re.IGNORECASE) for p in SPAM_PATTERNS]
@@ -296,8 +303,8 @@ class AsyncCommentManagerAPI:
                     )
                     deleted += 1
                     spam_users.add(c.get("username", ""))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"request failed: {e}")
                 time.sleep(random.uniform(1, 3))
 
         logger.info(f"🗑️ Spam cleanup: {deleted} deleted from {len(comments.get('comments', []))} scanned")

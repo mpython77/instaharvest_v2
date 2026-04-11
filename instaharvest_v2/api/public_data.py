@@ -71,6 +71,13 @@ class HashtagQuotaTracker:
     """
 
     def __init__(self, max_per_profile: int = 30, window_days: int = 7):
+        """
+        Init.
+
+        Args:
+            max_per_profile: Parameter max_per_profile
+            window_days: Parameter window_days
+        """
         self.max_per_profile = max_per_profile
         self.window_days = window_days
         self._searches: Dict[str, List[Dict[str, Any]]] = {}  # profile -> [{hashtag, timestamp}]

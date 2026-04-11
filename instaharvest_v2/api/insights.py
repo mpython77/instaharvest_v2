@@ -13,6 +13,12 @@ class InsightsAPI:
     """Instagram insights/statistika API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def get_account_summary(self) -> Dict[str, Any]:

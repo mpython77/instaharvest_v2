@@ -585,6 +585,42 @@ def handle_get_feed(args: Dict, ig=None, cache=None, **kw) -> str:
         return f"Error getting feed: {e}"
 
 
+# ── get_tagged_posts ──
+def handle_get_tagged_posts(args: Dict, ig=None, **kw) -> str:
+    """Get tagged posts for a user — anonymous/public."""
+    username = args.get("username", "").strip().lstrip("@").lower()
+    user_id = args.get("user_id")
+    max_count = min(args.get("max_count", 12), 50)
+
+    if not user_id and not username:
+        return "Error: user_id or username is required."
+    if ig is None:
+        return "Error: Instagram client not available."
+
+    try:
+        # Resolve user_id from username if needed
+        if not user_id and username:
+            user_id = ig.public.get_user_id(username)
+            if not user_id:
+                return f"Could not get user ID for @{username}."
+
+        posts = ig.graphql.get_tagged_posts(user_id, count=max_count)
+        if not posts:
+            return f"No tagged posts found for user_id={user_id}."
+
+        items = posts if isinstance(posts, list) else [posts]
+        lines = [f"Tagged posts for user_id={user_id} ({len(items)} items):"]
+        for i, item in enumerate(items[:12], 1):
+            if isinstance(item, dict):
+                sc = item.get("shortcode", item.get("code", ""))
+                likes = item.get("like_count", item.get("likes", 0))
+                owner = item.get("owner", {}).get("username", "?")
+                lines.append(f"  {i}. https://instagram.com/p/{sc}/ (by @{owner}) ❤️{likes:,}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error getting tagged posts: {e}"
+
+
 # ── get_all_posts ──
 def handle_get_all_posts(args: Dict, ig=None, **kw) -> str:
     """Get all posts for a user — anonymous."""

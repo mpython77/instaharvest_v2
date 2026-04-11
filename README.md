@@ -11,7 +11,7 @@
     <img src="https://img.shields.io/badge/async-full_parity-brightgreen" alt="Async">
     <img src="https://img.shields.io/badge/agent_tools-161-orange" alt="Agent Tools">
     <img src="https://img.shields.io/badge/tests-6242_passed-success" alt="Tests">
-    <img src="https://img.shields.io/badge/coverage-20%25-yellow" alt="Coverage">
+    <img src="https://img.shields.io/badge/coverage-86%25-brightgreen" alt="Coverage">
     <a href="https://mpython77.github.io/instaharvest_v2/"><img src="https://img.shields.io/badge/docs-online-blue?logo=readthedocs" alt="Docs"></a>
   </p>
 </p>
@@ -630,7 +630,7 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 **Current status:**
 
 - ✅ 6242 tests passed (43 skipped)
-- 📊 ~20% code coverage
+- 📊 ~86.4% code coverage
 
 ---
 

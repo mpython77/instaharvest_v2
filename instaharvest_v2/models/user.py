@@ -51,14 +51,6 @@ class UserShort(InstaModel):
     is_private: bool = False
     profile_pic_url: str = ""
 
-    @field_validator("pk", mode="before")
-    @classmethod
-    def coerce_pk(cls, v: Any) -> int:
-        """Handle pk coming as string or from 'id' field."""
-        if v is None:
-            return 0
-        return int(v)
-
 
 class User(InstaModel):
     """
@@ -129,13 +121,6 @@ class User(InstaModel):
     mutual_followers_count: int = 0
     is_threads_user: bool = Field(default=False, alias="is_active_on_text_post_app")
     total_clips: int = Field(default=0, alias="total_clips_count")
-
-    @field_validator("pk", mode="before")
-    @classmethod
-    def coerce_pk(cls, v: Any) -> int:
-        if v is None:
-            return 0
-        return int(v)
 
     @field_validator("followers", mode="before")
     @classmethod

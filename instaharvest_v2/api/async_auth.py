@@ -72,6 +72,12 @@ class AsyncAuthAPI:
     """
 
     def __init__(self, client):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
         self._encryption_keys = None
         self._device_cookies_file = "device_cookies.json"
@@ -742,7 +748,7 @@ class AsyncAuthAPI:
             if json_text.startswith("for (;;);"):
                 json_text = json_text[len("for (;;);"):]
             result = json.loads(json_text)
-        except Exception:
+        except Exception as e:
             # Try to detect success from Set-Cookie headers
             pass
 
@@ -889,7 +895,7 @@ class AsyncAuthAPI:
 
         try:
             result = resp.json()
-        except Exception:
+        except Exception as e:
             raise LoginError(f"Failed to parse login response: {resp.text[:200]}")
 
         logger.debug(f"[Auth] Legacy login response: {json.dumps(result, ensure_ascii=False)[:300]}")
@@ -1069,7 +1075,7 @@ class AsyncAuthAPI:
                 cp_url = data.get("checkpoint_url")
                 if cp_url:
                     return cp_url
-            except Exception:
+            except Exception as e:
                 # HTML response — check for challenge patterns
                 if "/challenge/" in resp.text:
                     import re
@@ -1159,8 +1165,8 @@ class AsyncAuthAPI:
                 challenge_url = data.get("challenge", {}).get("url", "")
                 if challenge_url:
                     return challenge_url
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
 
         except Exception as e:
             logger.debug(f"[Auth] Probe strategy 4 failed: {e}")
@@ -1248,7 +1254,7 @@ class AsyncAuthAPI:
                             "username": username,
                             "challenge_resolved": True,
                         }
-                except Exception:
+                except Exception as e:
                     pass  # Fall through to ChallengeHandler
 
         except Exception as e:
@@ -1426,7 +1432,7 @@ class AsyncAuthAPI:
 
                 try:
                     login_result = resp.json()
-                except Exception:
+                except Exception as e:
                     logger.warning(f"[Auth] Re-login response not JSON: {resp.text[:200]}")
                     raise LoginError(f"Re-login after challenge failed: {resp.text[:200]}")
 
@@ -1540,7 +1546,7 @@ class AsyncAuthAPI:
 
         try:
             result = resp.json()
-        except Exception:
+        except Exception as e:
             raise LoginError(f"Failed to parse 2FA response: {resp.text[:200]}")
 
         if result.get("authenticated"):
@@ -1569,16 +1575,21 @@ class AsyncAuthAPI:
         """
         Check if the current session is still valid.
 
+        Uses /friendships/pending/ instead of /accounts/current_user/
+        because current_user enforces strict User-Agent ↔ TLS fingerprint
+        validation that rejects all non-browser clients (curl_cffi, httpx, etc).
+
         Returns:
             bool: True if session works, False if re-login needed
         """
         try:
             result = await self._client.get(
-                "/accounts/current_user/",
+                "/friendships/pending/",
                 rate_category="get_profile",
             )
-            return result.get("status") == "ok" or "user" in result
-        except Exception:
+            # Any valid JSON response with status=ok or users list means session is alive
+            return result.get("status") == "ok" or "users" in result
+        except Exception as e:
             return False
 
     async def save_session(self, filepath: str) -> None:

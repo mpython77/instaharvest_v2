@@ -5,6 +5,7 @@ Tests all public anonymous API methods (sync + async) across
 two layers: PublicAPI (high-level) and AnonClient (low-level).
 
 Usage as library:
+import logging
     from instaharvest_v2 import Instagram
     from instaharvest_v2.diagnostics import run_diagnostics
 
@@ -18,6 +19,7 @@ Usage from CLI:
     python -m instaharvest_v2 diagnose cristiano --layer public --sync-only
 """
 
+import logging
 import json
 import time
 import asyncio
@@ -25,6 +27,9 @@ import inspect
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, field
 
+
+
+logger = logging.getLogger("instaharvest_v2.diagnostics")
 
 # ═══════════════════════════════════════════════════════════
 # DATA CLASSES
@@ -57,6 +62,12 @@ def _register(name: str, layer: str = "public", category: str = "profile",
               needs_user_id=False, needs_shortcode=False, needs_media_id=False):
     """Decorator — register diagnostic methods."""
     def decorator(fn_builder):
+        """
+        Decorator.
+
+        Args:
+            fn_builder: Parameter fn_builder
+        """
         REGISTRY.append({
             "name": name,
             "layer": layer,
@@ -510,8 +521,8 @@ def run_diagnostics(
             try:
                 for url in ig._proxy_mgr._proxies.keys():
                     ig_async.add_proxy(url)
-            except Exception:
-                pass  # no proxies configured
+            except Exception as e:
+                pass  # No proxies configured — expected in anonymous mode
             anon_async = ig_async._anon_client
 
             if async_only:

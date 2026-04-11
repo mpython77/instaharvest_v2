@@ -44,6 +44,17 @@ class GrowthLimits:
         stop_on_challenge: bool = True,
         stop_on_rate_limit: bool = True,
     ):
+        """
+        Init.
+
+        Args:
+            max_per_hour: Parameter max_per_hour
+            max_per_day: Parameter max_per_day
+            min_delay: Parameter min_delay
+            max_delay: Parameter max_delay
+            stop_on_challenge: Parameter stop_on_challenge
+            stop_on_rate_limit: Parameter stop_on_rate_limit
+        """
         self.max_per_hour = max_per_hour
         self.max_per_day = max_per_day
         self.min_delay = min_delay
@@ -66,6 +77,19 @@ class GrowthFilters:
         bio_keywords: Optional[List[str]] = None,
         exclude_keywords: Optional[List[str]] = None,
     ):
+        """
+        Init.
+
+        Args:
+            min_followers: Parameter min_followers
+            max_followers: Parameter max_followers
+            min_posts: Parameter min_posts
+            is_private: Parameter is_private
+            is_verified: Parameter is_verified
+            has_bio: Parameter has_bio
+            bio_keywords: Parameter bio_keywords
+            exclude_keywords: Parameter exclude_keywords
+        """
         self.min_followers = min_followers
         self.max_followers = max_followers
         self.min_posts = min_posts
@@ -76,6 +100,15 @@ class GrowthFilters:
         self.exclude_keywords = [k.lower() for k in (exclude_keywords or [])]
 
     async def matches(self, user: Dict) -> bool:
+        """
+        Matches.
+
+        Args:
+            user: Parameter user
+
+        Returns:
+            Return value of matches
+        """
         followers = user.get("follower_count", 0)
         posts = user.get("media_count", 0)
         bio = (user.get("biography", "") or "").lower()
@@ -107,6 +140,14 @@ class AsyncGrowthAPI:
     """
 
     def __init__(self, client, users_api, friendships_api):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            users_api: Parameter users_api
+            friendships_api: Parameter friendships_api
+        """
         self._client = client
         self._users = users_api
         self._friendships = friendships_api
@@ -428,9 +469,21 @@ class AsyncGrowthAPI:
         self._blacklist.update(usernames)
 
     async def clear_whitelist(self) -> None:
+        """
+        Clear whitelist.
+
+        Returns:
+            Return value of clear_whitelist
+        """
         self._whitelist.clear()
 
     async def clear_blacklist(self) -> None:
+        """
+        Clear blacklist.
+
+        Returns:
+            Return value of clear_blacklist
+        """
         self._blacklist.clear()
 
     @property
@@ -538,7 +591,7 @@ class AsyncGrowthAPI:
                     result = self._friendships.get_followers(user_id, count=50, after=cursor)
                 else:
                     result = self._friendships.get_following(user_id, count=50, after=cursor)
-            except Exception:
+            except Exception as e:
                 break
             users = result.get("users", [])
             if not users:

@@ -29,6 +29,15 @@ class Dashboard:
         session_manager=None,
         event_emitter=None,
     ):
+        """
+        Init.
+
+        Args:
+            rate_limiter: Parameter rate_limiter
+            proxy_manager: Parameter proxy_manager
+            session_manager: Parameter session_manager
+            event_emitter: Parameter event_emitter
+        """
         self._rate_limiter = rate_limiter
         self._proxy_mgr = proxy_manager
         self._session_mgr = session_manager

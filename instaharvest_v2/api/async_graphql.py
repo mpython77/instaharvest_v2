@@ -125,6 +125,12 @@ class AsyncGraphQLAPI:
     """
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     # ═══════════════════════════════════════════════════════════
@@ -753,7 +759,12 @@ class AsyncGraphQLAPI:
         if after:
             variables["after"] = after
 
-        data = await self._graphql_query(QUERY_HASHES["tagged_posts"], variables)
+        # Fallback to v2 if legacy fails or just use v2 by default for stability
+        try:
+            return await self.get_profile_tagged_v2(user_id, count=count, after=after)
+        except Exception as e:
+            # Try legacy as last resort (though likely dead)
+            data = await self._graphql_query(QUERY_HASHES["tagged_posts"], variables)
 
         edge = data.get("data", {}).get("user", {}).get(
             "edge_user_to_photos_of_you", {}
@@ -1181,11 +1192,10 @@ class AsyncGraphQLAPI:
     # HELPER: Parse v2 media node
     # ═══════════════════════════════════════════════════════════
 
-    @staticmethod
-    async def _parse_v2_media(node: Dict) -> Dict[str, Any]:
+    async def _parse_v2_media(self, node: Dict) -> Dict[str, Any]:
         """
         Parse a v2 (REST-like) media node from GraphQL response.
-        Extracts ALL available data into a clean dict.
+        Extracts ALL available data into a clean dict, with fallbacks for different query types.
 
         Args:
             node: Raw media node from GraphQL
@@ -1193,172 +1203,167 @@ class AsyncGraphQLAPI:
         Returns:
             dict: Structured media info
         """
-        user = node.get("user", {}) or {}
-        caption_data = node.get("caption", {}) or {}
+        if not node or not isinstance(node, dict):
+            return {}
+
+        # 1. Primary User / Owner
+        user = node.get("user") or node.get("owner") or {}
+        
+        # 2. Location (pre-fetch for use below)
         location = node.get("location", {}) or {}
-        music = node.get("music_metadata", {}) or {}
-        music_info = music.get("music_info", {}) or {}
-        music_asset = music_info.get("music_asset_info", {}) or {}
-        clips_meta = node.get("clips_metadata", {}) or {}
 
-        # Image versions
-        images = []
-        for img in (node.get("image_versions2", {}) or {}).get("candidates", []):
-            images.append({
-                "width": img.get("width"),
-                "height": img.get("height"),
-                "url": img.get("url", ""),
-            })
+        # 3. Caption Extraction (with fallbacks)
+        caption_data = node.get("caption") or {}
+        caption_text = ""
+        if isinstance(caption_data, dict):
+            caption_text = caption_data.get("text", "")
+        
+        if not caption_text:
+            # Try GraphQL edge pattern (often used in web/Polaris)
+            caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
+            if caption_edges:
+                caption_text = caption_edges[0].get("node", {}).get("text", "")
+        
+        # 4. Mentions from caption (regex)
+        # Using a more robust regex for IG usernames
+        mentions = list(set(re.findall(r"@([a-zA-Z0-9_._-]{1,30})", caption_text))) if caption_text else []
 
-        # Video versions
-        videos = []
-        for vid in (node.get("video_versions", []) or []):
-            videos.append({
-                "width": vid.get("width"),
-                "height": vid.get("height"),
-                "url": vid.get("url", ""),
-                "type": vid.get("type"),
-            })
-
-        # Carousel items
-        carousel = []
-        for item in (node.get("carousel_media", []) or []):
-            carousel.append({
-                "pk": item.get("pk"),
-                "media_type": item.get("media_type"),
-                "images": [
-                    {"width": c.get("width"), "height": c.get("height"), "url": c.get("url")}
-                    for c in (item.get("image_versions2", {}) or {}).get("candidates", [])
-                ],
-                "videos": [
-                    {"width": v.get("width"), "height": v.get("height"), "url": v.get("url")}
-                    for v in (item.get("video_versions", []) or [])
-                ],
-                "tagged_users": [
-                    {
-                        "username": (t.get("user", {}) or {}).get("username"),
-                        "pk": (t.get("user", {}) or {}).get("pk"),
-                        "position": t.get("position"),
-                    }
-                    for t in (item.get("usertags", {}) or {}).get("in", [])
-                ],
-            })
-
-        # Tagged users
+        # 5. Tagged Users (with fallbacks)
         tagged_users = []
-        for tag in (node.get("usertags", {}) or {}).get("in", []):
+        # Fallback path A: REST-like (usertags)
+        rest_tags = (node.get("usertags", {}) or {}).get("in", [])
+        for tag in rest_tags:
             tag_user = tag.get("user", {}) or {}
             tagged_users.append({
-                "username": tag_user.get("username"),
-                "pk": tag_user.get("pk"),
+                "username": tag_user.get("username", ""),
+                "pk": tag_user.get("pk") or tag_user.get("id"),
                 "full_name": tag_user.get("full_name", ""),
                 "is_verified": tag_user.get("is_verified", False),
                 "position": tag.get("position"),
             })
+            
+        # Fallback path B: GraphQL-like (edge_media_to_tagged_user)
+        if not tagged_users:
+            gql_tags = node.get("edge_media_to_tagged_user", {}).get("edges", [])
+            for edge in gql_tags:
+                tag_node = edge.get("node", {})
+                tag_user = tag_node.get("user", {}) or {}
+                tagged_users.append({
+                    "username": tag_user.get("username", ""),
+                    "pk": tag_user.get("id") or tag_user.get("pk"),
+                    "full_name": tag_user.get("full_name", ""),
+                    "is_verified": tag_user.get("is_verified", False),
+                    "position": [tag_node.get("x"), tag_node.get("y")] if "x" in tag_node else None,
+                })
 
-        # Top likers (facepile)
-        top_likers = [
-            u.get("username", "")
-            for u in (node.get("facepile_top_likers", []) or [])
-        ]
+        # 6. Coauthors
+        coauthors = []
+        coauthor_raw = node.get("coauthor_producers") or node.get("edge_media_to_coauthor_producers", {}).get("edges", [])
+        if isinstance(coauthor_raw, list):
+            for co in coauthor_raw:
+                # Handle both direct list and edges list
+                item = co.get("node") if isinstance(co, dict) and "node" in co else co
+                if isinstance(item, dict):
+                    coauthors.append({
+                        "pk": item.get("pk") or item.get("id"),
+                        "username": item.get("username", ""),
+                        "full_name": item.get("full_name", ""),
+                        "is_verified": item.get("is_verified", False),
+                    })
 
-        # Coauthors
-        coauthors = [
-            {
-                "pk": co.get("pk"),
-                "username": co.get("username"),
-                "full_name": co.get("full_name", ""),
-                "is_verified": co.get("is_verified", False),
-            }
-            for co in (node.get("coauthor_producers", []) or [])
-        ]
+        # 7. Timestamps
+        taken_at = node.get("taken_at") or node.get("taken_at_timestamp")
 
-        media_type_int = node.get("media_type", 0)
+        # 8. Media Types & Flags
+        media_type_int = node.get("media_type")
+        if media_type_int is None:
+            # Map __typename to int
+            tn = node.get("__typename", "")
+            if tn == "GraphImage": media_type_int = 1
+            elif tn in ("GraphVideo", "GraphVideoClip"): media_type_int = 2
+            elif tn == "GraphSidecar": media_type_int = 8
+            else: media_type_int = 1 # Default
+
         media_type_name = {1: "photo", 2: "video", 8: "carousel"}.get(media_type_int, str(media_type_int))
+        clips_meta = node.get("clips_metadata") or node.get("clips_metadata_v2")
+
+        # 9. Media Versions (Images/Videos)
+        images = []
+        img_v2 = node.get("image_versions2", {}) or {}
+        for img in img_v2.get("candidates", []):
+            images.append({"width": img.get("width"), "height": img.get("height"), "url": img.get("url", "")})
+        
+        if not images and node.get("display_url"):
+            images.append({"url": node["display_url"], "width": node.get("original_width"), "height": node.get("original_height")})
+
+        videos = []
+        for vid in (node.get("video_versions", []) or []):
+            videos.append({"width": vid.get("width"), "height": vid.get("height"), "url": vid.get("url", ""), "type": vid.get("type")})
+        
+        if not videos and node.get("video_url"):
+            videos.append({"url": node["video_url"], "width": node.get("original_width"), "height": node.get("original_height")})
+
+        # 10. Carousel Parsing
+        carousel = []
+        for item in (node.get("carousel_media", []) or []):
+            card_tags = []
+            for tag in (item.get("usertags", {}) or {}).get("in", []):
+                t_u = tag.get("user", {}) or {}
+                card_tags.append({
+                    "username": t_u.get("username", ""),
+                    "pk": t_u.get("pk") or t_u.get("id"),
+                    "full_name": t_u.get("full_name", ""),
+                    "is_verified": t_u.get("is_verified", False),
+                    "position": tag.get("position"),
+                })
+            carousel.append({
+                "pk": item.get("pk"),
+                "media_type": item.get("media_type"),
+                "display_url": (item.get("image_versions2", {}).get("candidates", [{}])[0]).get("url", ""),
+                "tagged_users": card_tags,
+            })
+
+        # 11. Facepile / Likers
+        top_likers = [u.get("username", "") for u in (node.get("facepile_top_likers", []) or [])]
 
         return {
-            # Identity
-            "pk": node.get("pk"),
+            "pk": node.get("pk") or node.get("id"),
             "id": node.get("id", ""),
-            "code": node.get("code", ""),
-            "shortcode": node.get("code", ""),
-
-            # Type
+            "code": node.get("code") or node.get("shortcode", ""),
+            "shortcode": node.get("shortcode") or node.get("code", ""),
             "media_type": media_type_int,
             "media_type_name": media_type_name,
             "is_photo": media_type_int == 1,
             "is_video": media_type_int == 2,
             "is_carousel": media_type_int == 8,
-            "is_reel": bool(clips_meta),
-            "product_type": node.get("product_type", ""),
-
-            # Engagement
-            "like_count": node.get("like_count", 0),
-            "comment_count": node.get("comment_count", 0),
-            "play_count": node.get("play_count"),
-            "view_count": node.get("view_count"),
-            "reshare_count": node.get("reshare_count"),
-            "fb_play_count": node.get("fb_play_count"),
-            "top_likers": top_likers,
-
-            # Caption
-            "caption": caption_data.get("text", "") if isinstance(caption_data, dict) else "",
-            "caption_created_at": caption_data.get("created_at") if isinstance(caption_data, dict) else None,
-
-            # Owner
+            "is_reel": bool(clips_meta) or node.get("product_type") == "clips",
+            "like_count": node.get("like_count") or node.get("edge_media_preview_like", {}).get("count", 0),
+            "comment_count": node.get("comment_count") or node.get("edge_media_to_comment", {}).get("count", 0),
+            "play_count": node.get("play_count") or node.get("video_play_count"),
+            "view_count": node.get("view_count") or node.get("video_view_count"),
+            "caption": caption_text,
+            "mentions": mentions,
+            "tagged_users": tagged_users,
             "user": {
-                "pk": user.get("pk"),
+                "pk": user.get("pk") or user.get("id"),
                 "username": user.get("username", ""),
                 "full_name": user.get("full_name", ""),
-                "is_verified": user.get("is_verified", False),
-                "is_private": user.get("is_private", False),
                 "profile_pic_url": user.get("profile_pic_url", ""),
+                "is_verified": user.get("is_verified", False),
             },
             "coauthors": coauthors,
-
-            # Timestamps
-            "taken_at": node.get("taken_at"),
-            "device_timestamp": node.get("device_timestamp"),
-
-            # Media
+            "taken_at": taken_at,
+            "video_duration": node.get("video_duration"),
             "images": images,
             "videos": videos,
             "carousel": carousel,
-            "carousel_media_count": node.get("carousel_media_count"),
-            "original_width": node.get("original_width"),
-            "original_height": node.get("original_height"),
-            "video_duration": node.get("video_duration"),
-
-            # Location
             "location": {
                 "pk": location.get("pk"),
                 "name": location.get("name", ""),
-                "address": location.get("address", ""),
                 "city": location.get("city", ""),
-                "lat": location.get("lat"),
-                "lng": location.get("lng"),
-                "short_name": location.get("short_name", ""),
             } if location else None,
-
-            # Tagged
-            "tagged_users": tagged_users,
-
-            # Music
-            "music": {
-                "title": music_asset.get("title", ""),
-                "artist": music_asset.get("display_artist", ""),
-                "duration_ms": music_asset.get("duration_in_ms"),
-                "id": music_asset.get("audio_asset_id"),
-            } if music_asset else None,
-
-            # Flags
-            "comments_disabled": node.get("comments_disabled", False),
-            "commenting_disabled_for_viewer": node.get("commenting_disabled_for_viewer", False),
-            "like_and_view_counts_disabled": node.get("like_and_view_counts_disabled", False),
-            "has_liked": node.get("has_liked", False),
-            "has_saved": node.get("has_viewer_saved", False),
+            "top_likers": top_likers,
             "is_paid_partnership": node.get("is_paid_partnership", False),
-            "is_organic_product_tagging_eligible": node.get("is_organic_product_tagging_eligible", False),
         }
 
     # ═══════════════════════════════════════════════════════════
@@ -1683,35 +1688,12 @@ class AsyncGraphQLAPI:
             if not isinstance(media, dict):
                 continue
 
-            user = media.get("user", {}) or {}
-            caption_data = media.get("caption", {}) or {}
-            caption_text = caption_data.get("text", "") if isinstance(caption_data, dict) else ""
-
-            posts.append({
-                "pk": media.get("pk"),
-                "id": media.get("id"),
-                "code": media.get("code", ""),
-                "media_type": media.get("media_type", 2),
-                "play_count": media.get("play_count", 0),
-                "like_count": media.get("like_count", 0),
-                "comment_count": media.get("comment_count", 0),
-                "caption": caption_text,
-                "taken_at": media.get("taken_at"),
-                "video_duration": media.get("video_duration"),
-                "thumbnail_url": (
-                    media.get("image_versions2", {}).get("candidates", [{}])[0].get("url", "")
-                    if media.get("image_versions2") else ""
-                ),
-                "user": {
-                    "pk": user.get("pk"),
-                    "username": user.get("username", ""),
-                },
-            })
+            posts.append(await self._parse_v2_media(media))
 
         return {
             "posts": posts,
             "has_next": page_info.get("has_next_page", False),
-            "end_cursor": page_info.get("end_cursor"),
+            "end_cursor": page_info.get("end_cursor") or page_info.get("max_id"),
             "count": len(posts),
         }
 
@@ -1808,33 +1790,7 @@ class AsyncGraphQLAPI:
             if not isinstance(node, dict):
                 continue
 
-            user = node.get("user", {}) or {}
-            caption_data = node.get("caption", {}) or {}
-            caption_text = caption_data.get("text", "") if isinstance(caption_data, dict) else ""
-
-            posts.append({
-                "pk": node.get("pk"),
-                "id": node.get("id"),
-                "code": node.get("code", ""),
-                "media_type": node.get("media_type", 1),
-                "like_count": node.get("like_count", 0),
-                "comment_count": node.get("comment_count", 0),
-                "caption": caption_text,
-                "taken_at": node.get("taken_at"),
-                "carousel_media_count": node.get("carousel_media_count"),
-                "thumbnail_url": (
-                    node.get("image_versions2", {}).get("candidates", [{}])[0].get("url", "")
-                    if node.get("image_versions2") else
-                    node.get("display_uri", "")
-                ),
-                "user": {
-                    "pk": user.get("pk"),
-                    "username": user.get("username", ""),
-                    "full_name": user.get("full_name", ""),
-                    "is_verified": user.get("is_verified", False),
-                },
-                "accessibility_caption": node.get("accessibility_caption"),
-            })
+            posts.append(await self._parse_v2_media(node))
 
         return {
             "posts": posts,

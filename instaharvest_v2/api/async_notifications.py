@@ -27,6 +27,7 @@ Each story/notification structure:
         - extra_actions: ["hide", "block", "remove_follower"] (for follow)
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 import asyncio
@@ -35,11 +36,19 @@ from ..models.notification import (
     Notification, NotifCounts, NotifInbox,
 )
 
+logger = logging.getLogger("instaharvest_v2.api.async_notifications")
+
 
 class AsyncNotificationsAPI:
     """Instagram notifications and activity API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     # ─── RAW METHODS (returns dict) ────────────────
@@ -207,5 +216,5 @@ class AsyncNotificationsAPI:
                 "/feed/timeline/",
                 rate_category="get_default",
             )
-        except Exception:
+        except Exception as e:
             return {"status": "fail", "message": "timeline requires active session"}

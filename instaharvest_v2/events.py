@@ -97,6 +97,9 @@ class EventEmitter:
     """
 
     def __init__(self):
+        """
+        Init.
+        """
         self._listeners: Dict[EventType, List[EventCallback]] = {}
         self._global_listeners: List[EventCallback] = []
 

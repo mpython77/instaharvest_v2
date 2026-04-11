@@ -103,6 +103,13 @@ class SafeExecutor:
     """
 
     def __init__(self, ig_instance=None, timeout: int = 60):
+        """
+        Init.
+
+        Args:
+            ig_instance: Parameter ig_instance
+            timeout: Parameter timeout
+        """
         self._ig = ig_instance
         self._timeout = timeout
 
@@ -230,8 +237,8 @@ class SafeExecutor:
                     # Only include serializable values
                     repr(v)
                     user_vars[k] = v
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"operation failed: {e}")
 
         # Try to get a "result" variable if the code defines one
         return_value = namespace.get("result") or namespace.get("output") or namespace.get("answer")
@@ -440,7 +447,7 @@ class SafeExecutor:
             try:
                 fixed = _fix_fstring_line(line)
                 fixed_lines.append(fixed)
-            except Exception:
+            except Exception as e:
                 fixed_lines.append(line)
 
         return "\n".join(fixed_lines)

@@ -64,6 +64,9 @@ class PluginManager:
     """
 
     def __init__(self):
+        """
+        Init.
+        """
         self._plugins: Dict[str, PluginTool] = {}
 
     def register(
@@ -146,6 +149,12 @@ class PluginManager:
 
     @property
     def count(self) -> int:
+        """
+        Count.
+
+        Returns:
+            Return value of count
+        """
         return len(self._plugins)
 
     @staticmethod

@@ -9,6 +9,14 @@ class InstagramError(Exception):
     """Base Instagram error class"""
 
     def __init__(self, message: str = "", status_code: int = 0, response: Optional[dict] = None):
+        """
+        Init.
+
+        Args:
+            message: Parameter message
+            status_code: Parameter status_code
+            response: Parameter response
+        """
         self.message = message
         self.status_code = status_code
         self.response = response or {}

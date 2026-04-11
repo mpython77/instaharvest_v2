@@ -14,6 +14,12 @@ class CollectionsAPI:
     """Instagram collections (saved posts) API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def get_list(self) -> Dict[str, Any]:

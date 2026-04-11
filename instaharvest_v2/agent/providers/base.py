@@ -31,6 +31,12 @@ class ProviderResponse:
 
     @property
     def has_tool_calls(self) -> bool:
+        """
+        Has tool calls.
+
+        Returns:
+            Return value of has_tool_calls
+        """
         return len(self.tool_calls) > 0
 
 
@@ -715,6 +721,28 @@ instaharvest_v2_TOOLS = [
                 "max_count": {
                     "type": "integer",
                     "description": "Maximum reels to fetch (default: 12)",
+                },
+            },
+            "required": ["username"],
+        },
+    },
+    {
+        "name": "get_tagged_posts",
+        "description": (
+            "Fetch tagged posts for a target Instagram user. Works WITHOUT login in some cases. "
+            "Returns a list of posts where the target user was tagged. "
+            "USE THIS when asked for tags or tagged media."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "username": {
+                    "type": "string",
+                    "description": "Instagram username",
+                },
+                "max_count": {
+                    "type": "integer",
+                    "description": "Maximum tagged posts to fetch (default: 30)",
                 },
             },
             "required": ["username"],
@@ -2318,6 +2346,13 @@ class BaseProvider(ABC):
     """
 
     def __init__(self, api_key: str, model: Optional[str] = None):
+        """
+        Init.
+
+        Args:
+            api_key: Parameter api_key
+            model: Parameter model
+        """
         self.api_key = api_key
         self.model = model
         self._total_tokens = 0
@@ -2344,6 +2379,12 @@ class BaseProvider(ABC):
 
     @property
     def total_tokens(self) -> int:
+        """
+        Total tokens.
+
+        Returns:
+            Return value of total_tokens
+        """
         return self._total_tokens
 
     @property

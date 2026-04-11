@@ -21,6 +21,12 @@ class AsyncDownloadAPI:
     """Instagram media download API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     async def _ensure_dir(self, path: str) -> str:

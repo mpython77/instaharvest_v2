@@ -56,6 +56,24 @@ class ExportFilter:
         exclude_keywords: Optional[List[str]] = None,
         custom_filter: Optional[Callable[[Dict], bool]] = None,
     ):
+        """
+        Init.
+
+        Args:
+            min_followers: Parameter min_followers
+            max_followers: Parameter max_followers
+            min_following: Parameter min_following
+            max_following: Parameter max_following
+            min_posts: Parameter min_posts
+            is_private: Parameter is_private
+            is_verified: Parameter is_verified
+            is_business: Parameter is_business
+            has_bio: Parameter has_bio
+            has_profile_pic: Parameter has_profile_pic
+            bio_keywords: Parameter bio_keywords
+            exclude_keywords: Parameter exclude_keywords
+            custom_filter: Parameter custom_filter
+        """
         self.min_followers = min_followers
         self.max_followers = max_followers
         self.min_following = min_following
@@ -129,6 +147,16 @@ class AsyncExportAPI:
     ]
 
     def __init__(self, client, users_api, friendships_api, media_api, hashtags_api):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            users_api: Parameter users_api
+            friendships_api: Parameter friendships_api
+            media_api: Parameter media_api
+            hashtags_api: Parameter hashtags_api
+        """
         self._client = client
         self._users = users_api
         self._friendships = friendships_api
@@ -264,8 +292,8 @@ class AsyncExportAPI:
                         try:
                             full = self._users.get_by_username(row["username"])
                             row = await self._user_to_row(full)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"operation failed: {e}")
 
                     if filters and not filters.matches(row):
                         filtered_out += 1
@@ -359,7 +387,7 @@ class AsyncExportAPI:
                                 media = m.get("media", {})
                                 if media:
                                     items.append(media)
-                    except Exception:
+                    except Exception as e:
                         break
 
                 if not items:

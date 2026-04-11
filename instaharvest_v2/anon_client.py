@@ -56,6 +56,12 @@ class AnonRateLimiter:
     """Simple per-strategy rate limiter for anonymous requests."""
 
     def __init__(self, enabled: bool = True):
+        """
+        Init.
+
+        Args:
+            enabled: Parameter enabled
+        """
         self._enabled = enabled
         self._windows: Dict[str, List[float]] = {}
         self._limits = ANON_RATE_LIMITS if enabled else ANON_RATE_LIMITS_UNLIMITED
@@ -116,6 +122,17 @@ class AnonClient:
         posts_strategies=None,
         cookies: Optional[Dict[str, str]] = None,
     ):
+        """
+        Init.
+
+        Args:
+            anti_detect: Parameter anti_detect
+            proxy_manager: Parameter proxy_manager
+            unlimited: Parameter unlimited
+            profile_strategies: Parameter profile_strategies
+            posts_strategies: Parameter posts_strategies
+            cookies: Parameter cookies
+        """
         self._anti_detect = anti_detect or AntiDetect()
         self._proxy_mgr = proxy_manager
         self._unlimited = unlimited
@@ -1046,8 +1063,8 @@ class AnonClient:
             data = self.get_web_api(f"/media/{media_pk}/info/")
             if data and data.get("items"):
                 return data["items"][0]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"_web_post_fallback failed: {e}")
         return None
 
     # ═══════════════════════════════════════════════════════════
@@ -1367,10 +1384,22 @@ class AnonClient:
 
     @property
     def request_count(self) -> int:
+        """
+        Request count.
+
+        Returns:
+            Return value of request_count
+        """
         return self._request_count
 
     @property
     def error_count(self) -> int:
+        """
+        Error count.
+
+        Returns:
+            Return value of error_count
+        """
         return self._error_count
 
     def close(self):
@@ -1378,8 +1407,8 @@ class AnonClient:
         if hasattr(self, '_session') and self._session:
             try:
                 self._session.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"close failed: {e}")
             self._session = None
         logger.debug("[AnonClient] Session closed")
 

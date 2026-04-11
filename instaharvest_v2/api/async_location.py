@@ -14,6 +14,12 @@ class AsyncLocationAPI:
     """Instagram Location API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     async def get_info(self, location_id: int | str) -> Dict[str, Any]:

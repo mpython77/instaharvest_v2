@@ -44,6 +44,13 @@ class AsyncHashtagResearchAPI:
     ]
 
     def __init__(self, client, hashtags_api):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            hashtags_api: Parameter hashtags_api
+        """
         self._client = client
         self._hashtags = hashtags_api
 
@@ -232,7 +239,7 @@ class AsyncHashtagResearchAPI:
                 "GET", f"/api/v1/tags/{tag}/info/",
             )
             return result if isinstance(result, dict) else {}
-        except Exception:
+        except Exception as e:
             return {"name": tag, "media_count": 0}
 
     async def _sample_posts(self, tag: str, count: int) -> List[Dict]:
@@ -265,8 +272,8 @@ class AsyncHashtagResearchAPI:
                             media = m.get("media", {})
                             if media:
                                 posts.append(media)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
 
         return posts[:count]
 

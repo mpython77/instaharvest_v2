@@ -336,9 +336,27 @@ class DeviceFingerprint:
 
         # ─── Deterministic UUIDs (FingerprintJS hash approach) ───
         def make_uuid(component: str) -> str:
+            """
+            Make uuid.
+
+            Args:
+                component: Parameter component
+
+            Returns:
+                Return value of make_uuid
+            """
             return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{seed}:{component}"))
 
         def make_android_id(component: str) -> str:
+            """
+            Make android id.
+
+            Args:
+                component: Parameter component
+
+            Returns:
+                Return value of make_android_id
+            """
             raw = hashlib.md5(f"{seed}:{component}".encode()).hexdigest()
             return f"android-{raw[:16]}"
 

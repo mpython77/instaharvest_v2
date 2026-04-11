@@ -175,6 +175,7 @@ class TestGetUserPosts:
 class TestGetTaggedPosts:
     @pytest.mark.asyncio
     async def test_basic(self, api):
+        api.get_profile_tagged_v2 = AsyncMock(side_effect=Exception("force fallback"))
         api._client.get.return_value = {"data": {"user": {"edge_user_to_photos_of_you": {
             "count": 1,
             "edges": [{"node": {

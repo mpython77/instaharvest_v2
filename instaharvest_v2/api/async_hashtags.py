@@ -16,6 +16,12 @@ class AsyncHashtagsAPI:
     """Instagram Hashtags API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
         # SearchAPI ga reference — lazy init
         self._search_api = None

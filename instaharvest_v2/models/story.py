@@ -68,22 +68,6 @@ class Story(InstaModel):
     # Flags
     is_video: bool = False
 
-    @field_validator("pk", mode="before")
-    @classmethod
-    def coerce_pk(cls, v: Any) -> int:
-        if v is None:
-            return 0
-        return int(v)
-
-    @field_validator("taken_at", "expiring_at", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return datetime.fromtimestamp(v)
-        return v
-
 
 class Highlight(InstaModel):
     """Instagram highlight (collection of stories)."""
@@ -93,12 +77,3 @@ class Highlight(InstaModel):
     cover_url: str = ""
     created_at: Optional[datetime] = None
     items: List[Story] = Field(default_factory=list)
-
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return datetime.fromtimestamp(v)
-        return v

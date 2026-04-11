@@ -5,8 +5,10 @@ Instagram post/media data models.
 """
 
 from datetime import datetime
+import logging
 from typing import Any, Dict, List, Optional
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, computed_field
+logger = logging.getLogger("instaharvest_v2.models.media")
 
 from .base import InstaModel
 from .user import UserShort
@@ -19,15 +21,6 @@ class Caption(InstaModel):
     pk: int = 0
     created_at: Optional[datetime] = None
     user: Optional[UserShort] = None
-
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return datetime.fromtimestamp(v)
-        return v
 
 
 class Media(InstaModel):
@@ -112,32 +105,37 @@ class Media(InstaModel):
     owner_username: str = ""
     owner_full_name: str = ""
 
-    @field_validator("pk", mode="before")
-    @classmethod
-    def coerce_pk(cls, v: Any) -> int:
-        if v is None:
-            return 0
-        return int(v)
-
-    @field_validator("taken_at", mode="before")
-    @classmethod
-    def parse_timestamp(cls, v: Any) -> Optional[datetime]:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return datetime.fromtimestamp(v)
-        return v
-
+    @computed_field
     @property
     def is_video(self) -> bool:
+        """
+        Is video.
+
+        Returns:
+            Return value of is_video
+        """
         return self.media_type == 2
 
+    @computed_field
     @property
     def is_carousel(self) -> bool:
+        """
+        Is carousel.
+
+        Returns:
+            Return value of is_carousel
+        """
         return self.media_type == 8
 
+    @computed_field
     @property
     def is_photo(self) -> bool:
+        """
+        Is photo.
+
+        Returns:
+            Return value of is_photo
+        """
         return self.media_type == 1
 
     @property
@@ -233,8 +231,8 @@ class Media(InstaModel):
             if isinstance(coauth, dict) and coauth.get("username"):
                 try:
                     coauthors.append(UserShort(**coauth))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to parse coauthor: {e}")
 
         # Tagged users (usertags)
         tagged = []
@@ -245,8 +243,8 @@ class Media(InstaModel):
                 if isinstance(tag_user, dict) and tag_user.get("username"):
                     try:
                         tagged.append(UserShort(**tag_user))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to parse tagged user: {e}")
 
         # Owner info
         owner_data = data.get("owner", {})

@@ -35,6 +35,14 @@ class AsyncAudienceAPI:
     """
 
     def __init__(self, client, users_api, friendships_api):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            users_api: Parameter users_api
+            friendships_api: Parameter friendships_api
+        """
         self._client = client
         self._users = users_api
         self._friendships = friendships_api
@@ -310,7 +318,8 @@ class AsyncAudienceAPI:
             try:
                 result = self._friendships.get_following(fid, count=30)
                 following = result.get("users", [])
-            except Exception:
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
                 continue
 
             for u in following:
@@ -382,8 +391,8 @@ class AsyncAudienceAPI:
                             "weight": 1,
                             "source": f"hashtag:{tag}",
                         }
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
 
             if len(candidates) >= target:
                 break
@@ -402,8 +411,8 @@ class AsyncAudienceAPI:
                     text = cap.get("text", "") if isinstance(cap, dict) else str(cap or "")
                     found = re.findall(r"#(\w+)", text.lower())
                     tags.update(found)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"operation failed: {e}")
         return [t for t, _ in tags.most_common(10)]
 
     async def _get_followers_list(self, user_id, count: int) -> List[Dict]:
@@ -413,7 +422,7 @@ class AsyncAudienceAPI:
         while len(all_users) < count:
             try:
                 result = self._friendships.get_followers(user_id, count=50, max_id=cursor)
-            except Exception:
+            except Exception as e:
                 break
             users = result.get("users", [])
             if not users:

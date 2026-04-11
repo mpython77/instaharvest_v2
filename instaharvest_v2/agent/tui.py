@@ -13,6 +13,7 @@ Components:
     - StatusFooter     — Token/cost/step summary line
 """
 
+import logging
 import os
 import sys
 import time
@@ -39,6 +40,8 @@ try:
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
+
+logger = logging.getLogger("instaharvest_v2.agent.tui")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -97,6 +100,13 @@ class AgentConsole:
     SYM_KEY      = "⟡"
 
     def __init__(self, compact: bool = False, no_banner: bool = False):
+        """
+        Init.
+
+        Args:
+            compact: Parameter compact
+            no_banner: Parameter no_banner
+        """
         if not HAS_RICH:
             raise ImportError(
                 "Rich is required for the modern CLI. "
@@ -195,8 +205,8 @@ class AgentConsole:
         try:
             if self._live:
                 self._live.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"stop_thinking failed: {e}")
         finally:
             self._live = None
 
@@ -354,7 +364,7 @@ class AgentConsole:
         try:
             md = Markdown(text, code_theme="monokai")
             self.console.print(Padding(md, (0, 2)))
-        except Exception:
+        except Exception as e:
             # Fallback to plain text
             self.console.print(Padding(Text(text), (0, 2)))
 
@@ -691,9 +701,15 @@ class FallbackConsole:
     """Plain text fallback when Rich is not available."""
 
     def __init__(self, **kwargs):
+        """
+        Init.
+        """
         self.compact = kwargs.get("compact", False)
 
     def welcome(self, **kwargs):
+        """
+        Welcome.
+        """
         print("\n" + "=" * 50)
         print(f"  InstaHarvest v2 Agent v{kwargs.get('version', '3.0')}")
         print(f"  Provider: {kwargs.get('provider', '?')}")
@@ -701,41 +717,99 @@ class FallbackConsole:
         print("=" * 50 + "\n")
 
     def get_input(self) -> str:
+        """
+        Get input.
+
+        Returns:
+            Return value of get_input
+        """
         try:
             return input("> ").strip()
         except (KeyboardInterrupt, EOFError):
             return "/exit"
 
     def start_thinking(self):
+        """
+        Start thinking.
+        """
         print("  Thinking...", end="", flush=True)
 
     def stop_thinking(self):
+        """
+        Stop thinking.
+        """
         print()
 
     def update_thinking(self, text: str):
+        """
+        Update thinking.
+
+        Args:
+            text: Parameter text
+        """
         pass
 
     def step(self, number: int, total: int = 0):
+        """
+        Step.
+
+        Args:
+            number: Parameter number
+            total: Parameter total
+        """
         pass
 
     def tool_call(self, name: str, args=None, code: str = "", description: str = ""):
+        """
+        Tool call.
+
+        Args:
+            name: Parameter name
+            args: Parameter args
+            code: Parameter code
+            description: Parameter description
+        """
         display = description or name
         print(f"  >> {display}")
 
     def tool_result(self, result: str, success: bool = True, name: str = ""):
+        """
+        Tool result.
+
+        Args:
+            result: Parameter result
+            success: Parameter success
+            name: Parameter name
+        """
         status = "OK" if success else "ERR"
         print(f"  [{status}] {result[:200]}")
 
     def show_code(self, code: str, language: str = "python"):
+        """
+        Show code.
+
+        Args:
+            code: Parameter code
+            language: Parameter language
+        """
         print(f"  ```{language}")
         for line in code.splitlines()[:20]:
             print(f"  {line}")
         print("  ```")
 
     def response(self, text: str):
+        """
+        Response.
+
+        Args:
+            text: Parameter text
+        """
         print(f"\n  {text}\n")
 
     def step_footer(self, **kwargs):
+        """
+        Step footer.
+        """
         parts = []
         if kwargs.get("steps"):
             parts.append(f"{kwargs['steps']} steps")
@@ -747,18 +821,53 @@ class FallbackConsole:
             print(f"  --- {' | '.join(parts)} ---\n")
 
     def error(self, message: str):
+        """
+        Error.
+
+        Args:
+            message: Parameter message
+        """
         print(f"  ERROR: {message}")
 
     def warning(self, message: str):
+        """
+        Warning.
+
+        Args:
+            message: Parameter message
+        """
         print(f"  WARN: {message}")
 
     def info(self, message: str):
+        """
+        Info.
+
+        Args:
+            message: Parameter message
+        """
         print(f"  {message}")
 
     def success(self, message: str):
+        """
+        Success.
+
+        Args:
+            message: Parameter message
+        """
         print(f"  OK: {message}")
 
     def ask_permission(self, description: str, action_type: str = "read", code: str = "") -> bool:
+        """
+        Ask permission.
+
+        Args:
+            description: Parameter description
+            action_type: Parameter action_type
+            code: Parameter code
+
+        Returns:
+            Return value of ask_permission
+        """
         print(f"\n  Permission: {description} [{action_type}]")
         try:
             ans = input("  Allow? [y/n]: ").strip().lower()
@@ -767,12 +876,24 @@ class FallbackConsole:
             return False
 
     def ask_user(self, question: str) -> str:
+        """
+        Ask user.
+
+        Args:
+            question: Parameter question
+
+        Returns:
+            Return value of ask_user
+        """
         try:
             return input(f"\n  Agent asks: {question}\n  Answer: ").strip() or "(no response)"
         except (KeyboardInterrupt, EOFError):
             return "(no response)"
 
     def show_help(self):
+        """
+        Show help.
+        """
         print("\n  Commands:")
         for cmd, desc in [
             ("/help", "Show help"), ("/exit", "Exit"),
@@ -783,31 +904,64 @@ class FallbackConsole:
         print()
 
     def show_history(self, history):
+        """
+        Show history.
+
+        Args:
+            history: Parameter history
+        """
         for msg in history:
             role = msg.get("role", "?")
             content = str(msg.get("content", ""))[:100]
             print(f"  [{role}] {content}")
 
     def show_templates(self, templates):
+        """
+        Show templates.
+
+        Args:
+            templates: Parameter templates
+        """
         for t in templates:
             print(f"  {t['name']:20s} {t.get('title', '')}")
 
     def show_cost(self, cost_data):
+        """
+        Show cost.
+
+        Args:
+            cost_data: Parameter cost_data
+        """
         for k, v in cost_data.items():
             print(f"  {k}: {v}")
 
     def show_model_info(self, **kwargs):
+        """
+        Show model info.
+        """
         for k, v in kwargs.items():
             print(f"  {k}: {v}")
 
     def goodbye(self):
+        """
+        Goodbye.
+        """
         print("\n  Goodbye!\n")
 
     def toggle_compact(self) -> bool:
+        """
+        Toggle compact.
+
+        Returns:
+            Return value of toggle_compact
+        """
         self.compact = not self.compact
         return self.compact
 
     def reset_notification(self):
+        """
+        Reset notification.
+        """
         print("  Conversation reset.\n")
 
 

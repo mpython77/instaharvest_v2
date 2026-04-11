@@ -22,6 +22,7 @@ from .log_config import get_debug_logger
 from .proxy_manager import ProxyManager
 from .anti_detect import AntiDetect
 from .async_rate_limiter import AsyncRateLimiter
+from .http_utils import build_request_headers
 from .config import (
     API_BASE,
     IG_APP_ID,
@@ -44,6 +45,8 @@ from .exceptions import (
 # (AsyncChallengeHandler already imported above)
 from .smart_rotation import SmartRotationCoordinator, RotationContext, _mask_proxy
 from .fb_dtsg import AsyncFbDtsgProvider
+
+LATEST_SERVER_REVISION = "1034642761"
 
 
 logger = logging.getLogger("instaharvest_v2.async")
@@ -73,6 +76,19 @@ class AsyncHttpClient:
         retry_config: Optional[RetryConfig] = None,
         event_emitter=None,
     ):
+        """
+        Init.
+
+        Args:
+            session_manager: Parameter session_manager
+            proxy_manager: Parameter proxy_manager
+            anti_detect: Parameter anti_detect
+            rate_limiter: Parameter rate_limiter
+            challenge_handler: Parameter challenge_handler
+            session_refresh_callback: Parameter session_refresh_callback
+            retry_config: Parameter retry_config
+            event_emitter: Parameter event_emitter
+        """
         self._session_mgr = session_manager
         self._proxy_mgr = proxy_manager
         self._anti_detect = anti_detect
@@ -91,10 +107,9 @@ class AsyncHttpClient:
         self._rotation = SmartRotationCoordinator(anti_detect, proxy_manager)
 
     def _get_async_session(self) -> AsyncSession:
-        """Get or create curl_cffi AsyncSession."""
+        """Get or create curl_cffi AsyncSession with Chrome 142 TLS."""
         if self._async_session is None:
-            identity = self._anti_detect.get_identity()
-            self._async_session = AsyncSession(impersonate=identity.impersonation)
+            self._async_session = AsyncSession(impersonate="chrome142")
         return self._async_session
 
     async def _rotate_async_session(self) -> None:
@@ -102,10 +117,9 @@ class AsyncHttpClient:
         if self._async_session:
             try:
                 await self._async_session.close()
-            except Exception:
-                pass
-        identity = self._anti_detect.get_identity()
-        self._async_session = AsyncSession(impersonate=identity.impersonation)
+            except Exception as e:
+                logger.debug(f"Async session close cleanup: {e}")
+        self._async_session = AsyncSession(impersonate="chrome142")
 
     # ─── PUBLIC API ──────────────────────────────────────────
 
@@ -234,42 +248,23 @@ class AsyncHttpClient:
                     )
 
                     # Headers
-                    if raw_data and raw_headers:
-                        headers = {
-                            "user-agent": sess.user_agent or self._anti_detect.get_identity().user_agent,
-                            "cookie": sess.cookie_string,
-                            "x-csrftoken": sess.csrf_token,
-                            "x-ig-app-id": IG_APP_ID,
-                            "referer": "https://www.instagram.com/",
-                            "origin": "https://www.instagram.com",
-                        }
-                        headers.update(raw_headers)
-                    elif method == "POST":
-                        headers = self._anti_detect.get_post_headers(sess.csrf_token)
-                    else:
-                        headers = self._anti_detect.get_request_headers(sess.csrf_token)
+                    # Build headers using shared utility
 
-                    # Session headers for non-raw requests
-                    if not (raw_data and raw_headers):
-                        if sess.user_agent:
-                            headers["user-agent"] = sess.user_agent
-                            # Replace generic sec-ch-ua with session fingerprint
-                            if sess.fingerprint and sess.fingerprint.sec_ch_ua:
-                                headers["sec-ch-ua"] = sess.fingerprint.sec_ch_ua
-                                headers["sec-ch-ua-mobile"] = "?0"
-                                headers["sec-ch-ua-platform"] = sess.fingerprint.sec_ch_ua_platform
-                                headers["sec-ch-ua-full-version-list"] = sess.fingerprint.sec_ch_ua_full_version_list
-                            else:
-                                for key in list(headers.keys()):
-                                    if key.startswith("sec-ch-"):
-                                        del headers[key]
-                        if sess.ig_www_claim:
-                            headers["x-ig-www-claim"] = sess.ig_www_claim
-                        if sess.x_instagram_ajax:
-                            headers["x-instagram-ajax"] = sess.x_instagram_ajax
-                        headers.setdefault("x-asbd-id", "359341")
-                        headers["cookie"] = sess.cookie_string
+                    headers = build_request_headers(
 
+                        method=method,
+
+                        url=url,
+
+                        sess=sess,
+
+                        anti_detect=self._anti_detect,
+
+                        raw_data=raw_data,
+
+                        raw_headers=raw_headers,
+
+                    )
                     # Proxy
                     proxy_dict = self._proxy_mgr.get_curl_proxy()
                     if proxy_dict:
@@ -300,11 +295,13 @@ class AsyncHttpClient:
                             data.setdefault("jazoest", sess.jazoest)
                         kwargs["data"] = data
 
+
                     # async request
                     if method == "GET":
                         response = await curl_sess.get(**kwargs)
                     else:
                         response = await curl_sess.post(**kwargs)
+
 
                     elapsed = time.time() - start_time
 
@@ -507,8 +504,8 @@ class AsyncHttpClient:
         if self._async_session:
             try:
                 await self._async_session.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Async session close cleanup: {e}")
             self._async_session = None
 
 

@@ -180,6 +180,12 @@ class StoryComposer:
     """
 
     def __init__(self, ig=None):
+        """
+        Init.
+
+        Args:
+            ig: Parameter ig
+        """
         self._ig = ig
         self._image_path: Optional[str] = None
         self._video_path: Optional[str] = None

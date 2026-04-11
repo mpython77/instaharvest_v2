@@ -34,6 +34,7 @@ Info in each story item:
         - story_reaction_stickers: Reaction stickers
 """
 
+import logging
 import re
 import json as _json
 from typing import Any, Dict, List, Optional
@@ -41,10 +42,19 @@ from typing import Any, Dict, List, Optional
 from ..client import HttpClient
 
 
+
+logger = logging.getLogger("instaharvest_v2.api.stories")
+
 class StoriesAPI:
     """Instagram stories API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def get_reels_tray(self) -> Dict[str, Any]:
@@ -815,8 +825,8 @@ class StoriesAPI:
                 result["stories"]["count"] = len(stories["items"])
                 if "user" in stories:
                     result["user"] = stories["user"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"operation failed: {e}")
 
         if not include_highlights:
             return result
@@ -836,12 +846,12 @@ class StoriesAPI:
                         try:
                             items = self.get_highlight_items_parsed(hl["id"])
                             hl["items"] = items.get("items", []) if items else []
-                        except Exception:
+                        except Exception as e:
                             hl["items"] = []
 
                 result["highlights"]["items"] = highlights
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"operation failed: {e}")
 
         return result
 

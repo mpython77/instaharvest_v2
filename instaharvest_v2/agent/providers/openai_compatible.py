@@ -117,6 +117,16 @@ class OpenAICompatibleProvider(BaseProvider):
         provider_name_str: str = "OpenAI-Compatible",
         default_model: str = "gpt-4.1-mini",
     ):
+        """
+        Init.
+
+        Args:
+            api_key: Parameter api_key
+            base_url: Parameter base_url
+            model: Parameter model
+            provider_name_str: Parameter provider_name_str
+            default_model: Parameter default_model
+        """
         super().__init__(api_key, model or default_model)
         self._base_url = base_url
         self._provider_name_str = provider_name_str
@@ -149,6 +159,17 @@ class OpenAICompatibleProvider(BaseProvider):
         tools: Optional[List[Dict]] = None,
         temperature: float = 0.1,
     ) -> ProviderResponse:
+        """
+        Generate.
+
+        Args:
+            messages: Parameter messages
+            tools: Parameter tools
+            temperature: Parameter temperature
+
+        Returns:
+            Return value of generate
+        """
         client = self._get_client()
 
         # Format tools
@@ -254,6 +275,12 @@ class OpenAICompatibleProvider(BaseProvider):
 
     @property
     def provider_name(self) -> str:
+        """
+        Provider name.
+
+        Returns:
+            Return value of provider_name
+        """
         return f"{self._provider_name_str} ({self.model})"
 
     @classmethod

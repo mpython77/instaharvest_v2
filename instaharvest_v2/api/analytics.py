@@ -35,6 +35,15 @@ class AnalyticsAPI:
     """
 
     def __init__(self, client, users_api, media_api, feed_api):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            users_api: Parameter users_api
+            media_api: Parameter media_api
+            feed_api: Parameter feed_api
+        """
         self._client = client
         self._users = users_api
         self._media = media_api

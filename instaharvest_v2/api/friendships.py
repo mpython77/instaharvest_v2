@@ -4,6 +4,7 @@ Friendships API
 Follow, unfollow, block, followers/following lists, friendship status.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 import json
 
@@ -11,10 +12,19 @@ from ..client import HttpClient
 from ..models.user import UserShort
 
 
+
+logger = logging.getLogger("instaharvest_v2.api.friendships")
+
 class FriendshipsAPI:
     """Instagram Friendships API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def get_followers(
@@ -157,7 +167,7 @@ class FriendshipsAPI:
                 f"/friendships/show/{user_id}/",
                 rate_category="get_default",
             )
-        except Exception:
+        except Exception as e:
             return {"status": "fail", "message": "show_friendship requires active session"}
 
     def follow(self, user_id: int | str) -> Dict[str, Any]:

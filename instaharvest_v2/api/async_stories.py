@@ -46,6 +46,12 @@ class AsyncStoriesAPI:
     """Instagram stories API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     async def get_reels_tray(self) -> Dict[str, Any]:
@@ -199,6 +205,43 @@ class AsyncStoriesAPI:
                 "id": ht.get("id"),
             })
 
+        # Handle Newer Bloks Stickers (story_bloks_stickers)
+        # These are commonly used in Highlights and newer stories
+        for bs in item.get("story_bloks_stickers", []):
+            st_blok = bs.get("bloks_sticker", {})
+            st_type = st_blok.get("bloks_sticker_type")
+            st_data = st_blok.get("sticker_data", {})
+
+            # Mention Bloks
+            if st_type == "mention" and "ig_mention" in st_data:
+                m = st_data["ig_mention"]
+                mentions.append({
+                    "username": m.get("username"),
+                    "pk": m.get("account_id"),
+                    "full_name": m.get("full_name"),
+                    "is_verified": None,
+                })
+
+            # Location Bloks
+            elif st_type == "location" and "ig_location" in st_data:
+                l = st_data["ig_location"]
+                locations.append({
+                    "name": l.get("name"),
+                    "pk": l.get("location_id"),
+                    "lat": l.get("lat"),
+                    "lng": l.get("lng"),
+                    "address": None,
+                    "city": None,
+                })
+
+            # Hashtag Bloks
+            elif st_type == "hashtag" and "ig_hashtag" in st_data:
+                h = st_data["ig_hashtag"]
+                hashtags.append({
+                    "name": h.get("name"),
+                    "id": h.get("hashtag_id"),
+                })
+
         # Polls (story_polls)
         polls = []
         for sp in item.get("story_polls", []):
@@ -291,6 +334,19 @@ class AsyncStoriesAPI:
                     "is_explicit": asset.get("is_explicit"),
                     "audio_asset_id": asset.get("audio_asset_id"),
                 }
+
+        # Fallback to Music Stickers (story_music_stickers)
+        if not music:
+            for ms in item.get("story_music_stickers", []):
+                mi = ms.get("music_asset_info", {})
+                if mi:
+                    music = {
+                        "title": mi.get("title"),
+                        "artist": mi.get("display_artist"),
+                        "duration_ms": mi.get("duration_in_ms"),
+                        "is_explicit": mi.get("is_explicit"),
+                        "audio_asset_id": mi.get("audio_asset_id"),
+                    }
 
         # Repost (story_feed_media)
         repost = None
@@ -816,8 +872,9 @@ class AsyncStoriesAPI:
                 result["stories"]["count"] = len(stories["items"])
                 if "user" in stories:
                     result["user"] = stories["user"]
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("instaharvest_v2.api").debug(f"Failed to fetch active stories: {e}")
 
         if not include_highlights:
             return result
@@ -837,12 +894,15 @@ class AsyncStoriesAPI:
                         try:
                             items = await self.get_highlight_items_parsed(hl["id"])
                             hl["items"] = items.get("items", []) if items else []
-                        except Exception:
+                        except Exception as e:
+                            import logging
+                            logging.getLogger("instaharvest_v2.api").debug(f"Failed to fetch highlight items for {hl['id']}: {e}")
                             hl["items"] = []
 
                 result["highlights"]["items"] = highlights
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("instaharvest_v2.api").debug(f"Failed to fetch highlights: {e}")
 
         return result
 

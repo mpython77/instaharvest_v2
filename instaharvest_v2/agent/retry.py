@@ -94,6 +94,16 @@ class RetryPolicy:
         backoff_factor: float = 2.0,
         jitter: bool = True,
     ):
+        """
+        Init.
+
+        Args:
+            max_retries: Parameter max_retries
+            base_delay: Parameter base_delay
+            max_delay: Parameter max_delay
+            backoff_factor: Parameter backoff_factor
+            jitter: Parameter jitter
+        """
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
@@ -165,6 +175,14 @@ class ProviderFallback:
         api_keys: Optional[Dict[str, str]] = None,
         retry_policy: Optional[RetryPolicy] = None,
     ):
+        """
+        Init.
+
+        Args:
+            providers: Parameter providers
+            api_keys: Parameter api_keys
+            retry_policy: Parameter retry_policy
+        """
         self.providers = providers
         self.api_keys = api_keys or {}
         self.retry_policy = retry_policy or RetryPolicy(max_retries=2)

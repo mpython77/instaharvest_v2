@@ -20,6 +20,12 @@ class DownloadAPI:
     """Instagram media download API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def _ensure_dir(self, path: str) -> str:

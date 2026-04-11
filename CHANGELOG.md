@@ -1,8 +1,8 @@
 # Changelog
 
-## [1.1.27] — 2026-03-16
+## [1.1.4] — 2026-04-11
 
-### Added
+### Added (v1.1.4)
 
 - **agent/tools/utility_tools.py** — 7 new utility tools:
   - `json_parse`, `csv_to_json`, `json_to_csv`, `calculate`, `text_replace`, `merge_files`, `download_url`
@@ -15,12 +15,12 @@
 - Agent TOOL_HANDLERS expanded from 37 → **161 tools** (164 schemas)
 - 6242 tests passing (up from 489)
 
-### Fixed
+### Fixed (v1.1.4)
 
 - **agent/core.py** — Critical dispatch bug: generic `_execute_tool` fallback was not passing `ig=`, `is_logged_in=`, `cache=` arguments to Phase 5 tool handlers, causing all new tools to fail at runtime
 - **README.md** — Updated all outdated statistics (modules, tools, tests, coverage, project structure)
 
-### Removed
+### Removed (v1.1.4)
 
 - Cleaned up 49 unused `cov*.txt` coverage dump files
 - Cleaned up 11 unused `.json` test artifacts
@@ -32,7 +32,7 @@
 
 ## [1.0.24] — 2026-03-16
 
-### Added
+### Added (v1.0.24)
 
 - **diagnostics.py** — Full API diagnostics module (41 methods: 22 PublicAPI + 19 AnonClient low-level)
   - Sync + async testing, registry pattern, JSON output, CLI integration
@@ -45,12 +45,12 @@
     `run_diagnostics`
 - Agent TOOL_HANDLERS expanded from 23 → 37 tools
 
-### Changed
+### Changed (v1.0.24)
 
 - **agent/tools/instagram_tools.py** — `get_hashtag_info` no longer requires login (uses `ig.public.get_hashtag_posts_v2` with login fallback)
 - **README.md** — Updated module counts (33+33), added Public Anonymous API section (22 methods), Diagnostics section, project structure
 
-### Removed
+### Removed (v1.0.24)
 
 - **my_test/anon_api.py** — Migrated to `instaharvest_v2/diagnostics.py`
 - **my_test/_check_coverage.py** — No longer needed
@@ -59,13 +59,13 @@
 
 ## [1.0.23] — 2026-03-06
 
-### Removed
+### Removed (v1.0.23)
 
 - **browser_engine.py** — Completely removed Playwright-based BrowserEngine from the library
 - **async_client.py** — Removed BrowserEngine import, lazy initialization, POST routing, and close() cleanup
 - POST requests now go directly through `curl_cffi` (as originally designed)
 
-### Changed
+### Changed (v1.0.23)
 
 - **async_direct.py** — `create_thread()` now generates proper Web API payload with `client_context`, `mutation_token`, `offline_threading_id`, `_uuid` (UUID v4), and `action: send_item`
 - **async_direct.py** — `recipient_users` format fixed to nested array `[["user_id"]]` matching Instagram Web API spec
@@ -79,7 +79,7 @@
 
 ## [1.0.22] — 2026-03-06
 
-### Fixed
+### Fixed (v1.0.22)
 
 - **async_discover.py** — Updated old doc_id (`29042405687261020`) to verified (`25814188068245954`)
 - **async_discover.py** — Fixed `module` variable and `friendly_name` to match sync version
@@ -90,7 +90,7 @@
 - **discover.py** — Added `max_total=10000` memory guard to `chain()`
 - **discover.py**, **users.py**, **README.md** — Translated all comments to English
 
-### Added
+### Added (v1.0.22)
 
 - `CHANGELOG.md` — Version history tracking
 
@@ -98,7 +98,7 @@
 
 ## [1.0.21] — 2026-03-06
 
-### Added
+### Added (v1.0.21)
 
 - **graphql.py** — 16 verified doc_ids from browser inspection
 - **graphql.py** — New methods: `get_hover_card`, `get_suggested_users`, `like_media`, `get_comments_v2`, `get_timeline_v2`, `get_reels_trending_v2`, `get_saved_v2`
@@ -106,7 +106,7 @@
 - **feed.py** — GraphQL v2 + REST fallback architecture
 - **test_graphql_v2.py** — 18 unit tests for all new methods
 
-### Changed
+### Changed (v1.0.21)
 
 - Marked 6 unverified doc_ids with `UNVERIFIED` comment
 
@@ -114,7 +114,7 @@
 
 ## [1.0.20] — 2026-03-05
 
-### Added
+### Added (v1.0.20)
 
 - `full_scrape.py` v3.1 — Suggested users integration
 - `README.md` — GraphQL API v2 documentation section

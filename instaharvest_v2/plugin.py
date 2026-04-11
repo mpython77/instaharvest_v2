@@ -86,6 +86,12 @@ class PluginManager:
     """
 
     def __init__(self, event_emitter=None):
+        """
+        Init.
+
+        Args:
+            event_emitter: Parameter event_emitter
+        """
         self._plugins: Dict[str, Plugin] = {}
         self._events = event_emitter
 

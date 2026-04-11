@@ -5,6 +5,7 @@ User data: profile, search, get by ID.
 Full profile scraping (bio mentions, hashtags, entity parsing).
 """
 
+import logging
 import re
 from typing import Any, Dict, List, Optional, Union
 
@@ -14,10 +15,19 @@ from ..exceptions import UserNotFound
 from ..models.user import User, UserShort, Contact, BioParsed
 
 
+
+logger = logging.getLogger("instaharvest_v2.api.async_users")
+
 class AsyncUsersAPI:
     """Instagram Users API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     async def get_by_username(self, username: str) -> User:
@@ -72,7 +82,7 @@ class AsyncUsersAPI:
             )
             raw = data2.get("user", data2)
             return User.from_api_info(raw)
-        except Exception:
+        except Exception as e:
             return User(pk=int(user_id) if str(user_id).isdigit() else 0)
 
     async def search(self, query: str) -> List[UserShort]:
@@ -101,8 +111,9 @@ class AsyncUsersAPI:
                 if user_data and user_data.get("username"):
                     users.append(UserShort(**user_data))
                     return users
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("instaharvest_v2.api").debug(f"Direct web search failed: {e}")
 
         # Method 2: Blended search (works with session)
         try:
@@ -115,8 +126,9 @@ class AsyncUsersAPI:
                 user_data = u.get("user", u) if isinstance(u, dict) else u
                 if isinstance(user_data, dict):
                     users.append(UserShort(**user_data))
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("instaharvest_v2.api").debug(f"Blended search failed: {e}")
 
         return users
 

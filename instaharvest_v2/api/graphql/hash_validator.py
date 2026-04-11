@@ -23,6 +23,14 @@ class GraphQLHashExpired(Exception):
     """Raised when a GraphQL doc_id or query_hash is rejected by Instagram."""
 
     def __init__(self, identifier: str, id_value: str, response: Any = None):
+        """
+        Init.
+
+        Args:
+            identifier: Parameter identifier
+            id_value: Parameter id_value
+            response: Parameter response
+        """
         self.identifier = identifier
         self.id_value = id_value
         self.response = response
@@ -59,6 +67,12 @@ class HashValidator:
     """
 
     def __init__(self, client):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     def validate_doc_id(self, doc_id: str, name: str = "") -> bool:

@@ -213,8 +213,8 @@ class AuthManager:
                     json.dumps(data, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to update last_used timestamp: {e}")
 
     # ─── Environment Auth ───────────────────────────────
 

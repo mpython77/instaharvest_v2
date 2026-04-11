@@ -151,6 +151,12 @@ class CostTracker:
     """
 
     def __init__(self, persist_path: Optional[str] = None):
+        """
+        Init.
+
+        Args:
+            persist_path: Parameter persist_path
+        """
         self._records: List[UsageRecord] = []
         self._session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self._persist_path = persist_path

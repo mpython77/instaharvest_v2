@@ -39,6 +39,15 @@ class AsyncBulkDownloadAPI:
     """
 
     def __init__(self, client, download_api, users_api, stories_api=None):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            download_api: Parameter download_api
+            users_api: Parameter users_api
+            stories_api: Parameter stories_api
+        """
         self._client = client
         self._download = download_api
         self._users = users_api
@@ -210,8 +219,8 @@ class AsyncBulkDownloadAPI:
                     downloaded += 1
                     if on_progress:
                         on_progress(downloaded, len(items), filename)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"operation failed: {e}")
 
         duration = time.time() - start
         logger.info(f"📦 Stories @{username}: {downloaded} files ({duration:.1f}s)")
@@ -260,7 +269,7 @@ class AsyncBulkDownloadAPI:
             try:
                 hl_data = self._stories.get_highlight_items(highlight_id)
                 items = hl_data.get("items", []) if isinstance(hl_data, dict) else []
-            except Exception:
+            except Exception as e:
                 items = tray.get("items", [])
 
             for idx, item in enumerate(items):
@@ -277,8 +286,8 @@ class AsyncBulkDownloadAPI:
                         total_downloaded += 1
                         if on_progress:
                             on_progress(total_downloaded, 0, filename)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"operation failed: {e}")
 
         duration = time.time() - start
         logger.info(f"📦 Highlights @{username}: {total_downloaded} files ({duration:.1f}s)")
@@ -361,7 +370,7 @@ class AsyncBulkDownloadAPI:
                 if cursor:
                     params["max_id"] = cursor
                 result = self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params=params)
-            except Exception:
+            except Exception as e:
                 break
 
             if not result or not isinstance(result, dict):

@@ -141,8 +141,8 @@ class ProxyHealthChecker:
                     EventType.PROXY_ROTATE,
                     extra={"recovered": recovered_count, **summary},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Event emit skipped: {e}")
 
         return summary
 
@@ -168,7 +168,8 @@ class ProxyHealthChecker:
             latency = time.time() - start
             # Instagram returns 200 or 302 for valid requests
             return resp.status_code < 500, latency
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Proxy check failed for {proxy_url[:30]}: {e}")
             return False, None
 
     @property

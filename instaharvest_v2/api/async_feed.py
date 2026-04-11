@@ -21,6 +21,13 @@ class AsyncFeedAPI:
     """Instagram feed API — GraphQL v2 with REST fallback."""
 
     def __init__(self, client: AsyncHttpClient, graphql=None):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            graphql: Parameter graphql
+        """
         self._client = client
         self._graphql = graphql  # GraphQLAPI instance (injected)
 

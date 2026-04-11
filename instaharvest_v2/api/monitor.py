@@ -40,6 +40,12 @@ class AccountWatcher:
     """
 
     def __init__(self, username: str):
+        """
+        Init.
+
+        Args:
+            username: Parameter username
+        """
         self.username = username
         self.user_id: Optional[int] = None
 
@@ -93,10 +99,22 @@ class AccountWatcher:
 
     @property
     def last_state(self) -> Optional[Dict]:
+        """
+        Last state.
+
+        Returns:
+            Return value of last_state
+        """
         return self._last_state
 
     @property
     def is_initialized(self) -> bool:
+        """
+        Is initialized.
+
+        Returns:
+            Return value of is_initialized
+        """
         return self._last_state is not None
 
 
@@ -109,6 +127,15 @@ class MonitorAPI:
     """
 
     def __init__(self, client, users_api, feed_api=None, stories_api=None):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            users_api: Parameter users_api
+            feed_api: Parameter feed_api
+            stories_api: Parameter stories_api
+        """
         self._client = client
         self._users = users_api
         self._feed = feed_api
@@ -159,6 +186,12 @@ class MonitorAPI:
 
     @property
     def watcher_count(self) -> int:
+        """
+        Watcher count.
+
+        Returns:
+            Return value of watcher_count
+        """
         return len(self._watchers)
 
     # ═══════════════════════════════════════════════════════════
@@ -192,6 +225,12 @@ class MonitorAPI:
 
     @property
     def is_running(self) -> bool:
+        """
+        Is running.
+
+        Returns:
+            Return value of is_running
+        """
         return self._running
 
     def check_now(self) -> Dict[str, Any]:
@@ -251,7 +290,7 @@ class MonitorAPI:
         # Fetch current state
         try:
             user = self._users.get_by_username(watcher.username)
-        except Exception:
+        except Exception as e:
             return 0
 
         current = self._extract_state(user)
@@ -275,8 +314,8 @@ class MonitorAPI:
                         if pid:
                             current_post_ids.add(str(pid))
                     current["_post_items"] = items
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
 
         if initial or not watcher.is_initialized:
             # First check — set baseline

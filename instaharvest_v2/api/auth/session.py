@@ -101,7 +101,7 @@ class SessionMixin:
 
         try:
             result = resp.json()
-        except Exception:
+        except Exception as e:
             raise LoginError(f"Failed to parse 2FA response: {resp.text[:200]}")
 
         if result.get("authenticated"):
@@ -130,16 +130,21 @@ class SessionMixin:
         """
         Check if the current session is still valid.
 
+        Uses /friendships/pending/ instead of /accounts/current_user/
+        because current_user enforces strict User-Agent <-> TLS fingerprint
+        validation that rejects all non-browser clients (curl_cffi, httpx, etc).
+
         Returns:
             bool: True if session works, False if re-login needed
         """
         try:
             result = self._client.get(
-                "/accounts/current_user/",
+                "/friendships/pending/",
                 rate_category="get_profile",
             )
-            return result.get("status") == "ok" or "user" in result
-        except Exception:
+            return result.get("status") == "ok" or "users" in result
+        except Exception as e:
+            logger.debug(f"Session validation failed: {e}")
             return False
 
     def save_session(self, filepath: str) -> None:

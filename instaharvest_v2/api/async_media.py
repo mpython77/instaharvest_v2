@@ -51,6 +51,12 @@ class AsyncMediaAPI:
     """Instagram media (post) API"""
 
     def __init__(self, client: AsyncHttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     # ─── Get data ─────────────────────────────────────

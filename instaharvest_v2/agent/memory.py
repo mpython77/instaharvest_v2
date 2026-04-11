@@ -47,6 +47,14 @@ class AgentMemory:
         max_sessions: int = MAX_SESSIONS,
         max_history: int = MAX_HISTORY_SIZE,
     ):
+        """
+        Init.
+
+        Args:
+            memory_dir: Parameter memory_dir
+            max_sessions: Parameter max_sessions
+            max_history: Parameter max_history
+        """
         self._dir = Path(memory_dir or DEFAULT_MEMORY_DIR)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._max_sessions = max_sessions
@@ -202,6 +210,12 @@ class AgentMemory:
 
     @property
     def session_count(self) -> int:
+        """
+        Session count.
+
+        Returns:
+            Return value of session_count
+        """
         return len(self._index)
 
     # ═══════════════════════════════════════════════════════

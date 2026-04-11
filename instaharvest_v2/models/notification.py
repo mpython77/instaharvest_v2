@@ -77,6 +77,15 @@ class NotifUserInfo(InstaModel):
     @field_validator("pk", mode="before")
     @classmethod
     def coerce_pk(cls, v: Any) -> str:
+        """
+        Coerce pk.
+
+        Args:
+            v: Parameter v
+
+        Returns:
+            Return value of coerce_pk
+        """
         return str(v) if v else ""
 
     @property

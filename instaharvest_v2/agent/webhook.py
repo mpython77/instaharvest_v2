@@ -31,6 +31,9 @@ class WebhookNotifier:
     """
 
     def __init__(self):
+        """
+        Init.
+        """
         self._channels: List[Dict] = []
 
     # ═══════════════════════════════════════════════════════
@@ -120,6 +123,12 @@ class WebhookNotifier:
 
     @property
     def channel_count(self) -> int:
+        """
+        Channel count.
+
+        Returns:
+            Return value of channel_count
+        """
         return len(self._channels)
 
     def clear(self):

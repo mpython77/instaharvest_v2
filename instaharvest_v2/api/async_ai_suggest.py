@@ -127,6 +127,15 @@ class AsyncAISuggestAPI:
     """
 
     def __init__(self, client, users_api, hashtags_api=None, hashtag_research_api=None):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            users_api: Parameter users_api
+            hashtags_api: Parameter hashtags_api
+            hashtag_research_api: Parameter hashtag_research_api
+        """
         self._client = client
         self._users = users_api
         self._hashtags = hashtags_api
@@ -250,8 +259,8 @@ class AsyncAISuggestAPI:
                         tags = re.findall(r"#(\w+)", text.lower())
                         already_using.update(tags)
                         post_keywords.extend(await self._extract_keywords(text))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"operation failed: {e}")
 
         # Combined niche from bio + posts
         all_keywords = bio_keywords + post_keywords

@@ -64,6 +64,15 @@ class EmailVerifier:
         imap_server: str = "imap.gmail.com",
         imap_port: int = 993,
     ):
+        """
+        Init.
+
+        Args:
+            email_address: Parameter email_address
+            email_password: Parameter email_password
+            imap_server: Parameter imap_server
+            imap_port: Parameter imap_port
+        """
         self.email_address = email_address
         self.email_password = email_password
         self.imap_server = imap_server
@@ -84,8 +93,8 @@ class EmailVerifier:
         if self._mail:
             try:
                 self._mail.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[EmailVerifier] Disconnect cleanup: {e}")
             self._mail = None
 
     def _get_email_body(self, msg) -> str:
@@ -99,22 +108,22 @@ class EmailVerifier:
                         payload = part.get_payload(decode=True)
                         charset = part.get_content_charset() or "utf-8"
                         body += payload.decode(charset, errors="replace")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"[EmailVerifier] text/plain decode failed: {e}")
                 elif content_type == "text/html" and not body:
                     try:
                         payload = part.get_payload(decode=True)
                         charset = part.get_content_charset() or "utf-8"
                         body += payload.decode(charset, errors="replace")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"[EmailVerifier] text/html decode failed: {e}")
         else:
             try:
                 payload = msg.get_payload(decode=True)
                 charset = msg.get_content_charset() or "utf-8"
                 body = payload.decode(charset, errors="replace")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[EmailVerifier] Body decode failed: {e}")
         return body
 
     def _extract_code(self, body: str) -> Optional[str]:
@@ -158,7 +167,8 @@ class EmailVerifier:
                 subject = decoded.decode(enc or "utf-8", errors="replace")
             else:
                 subject = decoded
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[EmailVerifier] Subject decode fallback: {e}")
             subject = raw_subject
 
         subject_lower = subject.lower()

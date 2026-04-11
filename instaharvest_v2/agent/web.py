@@ -63,6 +63,13 @@ def create_app(
 
     # For web, auto-approve (no terminal input)
     def web_permission_callback(description, action_type):
+        """
+        Web permission callback.
+
+        Args:
+            description: Parameter description
+            action_type: Parameter action_type
+        """
         logger.info(f"Web auto-approve: {description}")
         return True
 
@@ -91,7 +98,7 @@ def create_app(
         verbose=False,
     )
 
-    app = FastAPI(title="instaharvest_v2 Agent", version="1.1.27")
+    app = FastAPI(title="instaharvest_v2 Agent", version="1.1.4")
 
     # Static files
     if STATIC_DIR.exists():
@@ -158,6 +165,58 @@ def create_app(
             })
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
+
+    # ─── Classical API (Direct) ───────────────────────
+
+    @app.get("/api/feed/user/{user_id}")
+    async def get_user_feed(user_id: str, count: int = 12):
+        """Get user's feed."""
+        try:
+            data = ig.public.get_feed(user_id, max_count=count)
+            # Ensure we return a list of items for the UI
+            if isinstance(data, dict):
+                items = data.get("items", [])
+            else:
+                items = data if isinstance(data, list) else [data]
+            return JSONResponse({"success": True, "items": items})
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.get("/api/feed/tagged/{user_id}")
+    async def get_user_tagged(user_id: str, count: int = 12):
+        """Get user's tagged posts."""
+        try:
+            items = ig.graphql.get_tagged_posts(user_id, count=count)
+            return JSONResponse({"success": True, "items": items})
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.get("/api/media/likers/{media_pk}")
+    async def get_media_likers(media_pk: str, count: int = 50):
+        """Get post likers."""
+        try:
+            # Try parsed version first
+            if hasattr(ig.media, "get_likers_parsed"):
+                likers = ig.media.get_likers_parsed(media_pk)
+            else:
+                likers = ig.media.get_likers(media_pk)
+            return JSONResponse({"success": True, "items": likers})
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.get("/api/user/info/{username}")
+    async def get_username_info(username: str):
+        """Get user profile info by username."""
+        try:
+            user = ig.users.get_by_username(username)
+            # Serialize for JSON
+            if hasattr(user, "__dict__"):
+                data = {k: v for k, v in user.__dict__.items() if not k.startswith("_")}
+            else:
+                data = user
+            return JSONResponse({"success": True, "user": data})
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/api/history")
     async def history():

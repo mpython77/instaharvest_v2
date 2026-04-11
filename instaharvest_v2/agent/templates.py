@@ -279,6 +279,12 @@ class TemplateRunner:
     """
 
     def __init__(self, agent):
+        """
+        Init.
+
+        Args:
+            agent: Parameter agent
+        """
         self._agent = agent
 
     def run(self, template_name: str, **kwargs):

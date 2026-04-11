@@ -19,6 +19,9 @@ from .config import PROXY_MAX_FAILURES, PROXY_MIN_SCORE
 
 
 class RotationStrategy(Enum):
+    """
+    RotationStrategy implementation.
+    """
     ROUND_ROBIN = "round_robin"
     RANDOM = "random"
     WEIGHTED = "weighted"  # Score-based
@@ -60,6 +63,12 @@ class ProxyInfo:
 
     @property
     def avg_response_time(self) -> float:
+        """
+        Avg response time.
+
+        Returns:
+            Return value of avg_response_time
+        """
         if self.total_requests == 0:
             return 0.0
         return self.total_response_time / self.total_requests
@@ -82,6 +91,12 @@ class ProxyManager:
     """
 
     def __init__(self, strategy: RotationStrategy = RotationStrategy.WEIGHTED):
+        """
+        Init.
+
+        Args:
+            strategy: Parameter strategy
+        """
         self._proxies: Dict[str, ProxyInfo] = {}
         self._strategy = strategy
         self._index = 0
@@ -227,11 +242,23 @@ class ProxyManager:
 
     @property
     def has_proxies(self) -> bool:
+        """
+        Has proxies.
+
+        Returns:
+            Return value of has_proxies
+        """
         with self._lock:
             return bool(self._proxies)
 
     @property
     def active_count(self) -> int:
+        """
+        Active count.
+
+        Returns:
+            Return value of active_count
+        """
         with self._lock:
             return sum(1 for p in self._proxies.values() if p.is_active)
 

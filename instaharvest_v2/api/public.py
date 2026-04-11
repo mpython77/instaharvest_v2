@@ -32,6 +32,12 @@ class PublicAPI:
     """
 
     def __init__(self, anon_client: AnonClient):
+        """
+        Init.
+
+        Args:
+            anon_client: Parameter anon_client
+        """
         self._client = anon_client
 
     # ═══════════════════════════════════════════════════════════
@@ -87,8 +93,8 @@ class PublicAPI:
                 uid = web_profile.get("id") or web_profile.get("pk")
                 if uid:
                     return int(uid)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"operation failed: {e}")
 
         return None
 
@@ -840,7 +846,7 @@ class PublicAPI:
                 try:
                     username, profile = future.result()
                     results[username] = profile
-                except Exception:
+                except Exception as e:
                     results[futures[future]] = None
 
         return results
@@ -888,7 +894,7 @@ class PublicAPI:
                 try:
                     uid, feed = future.result()
                     results[uid] = feed
-                except Exception:
+                except Exception as e:
                     results[str(futures[future])] = {"items": [], "error": "unknown"}
 
         return results

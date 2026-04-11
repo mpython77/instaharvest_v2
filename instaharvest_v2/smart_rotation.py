@@ -122,7 +122,7 @@ def _mask_proxy(proxy_url: str) -> str:
         if len(parts) == 4:
             return f"{parts[0]}.{parts[1]}.x.x:{port}"
         return f"{host[:8]}..:{port}"
-    except Exception:
+    except Exception as e:
         return "proxy:***"
 
 
@@ -152,6 +152,13 @@ class SmartRotationCoordinator:
         anti_detect: "AntiDetect",
         proxy_manager: "ProxyManager",
     ):
+        """
+        Init.
+
+        Args:
+            anti_detect: Parameter anti_detect
+            proxy_manager: Parameter proxy_manager
+        """
         self._anti_detect = anti_detect
         self._proxy_mgr = proxy_manager
         self._lock = threading.Lock()

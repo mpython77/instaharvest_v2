@@ -1,97 +1,38 @@
 # Tools & Plugins
 
-## Built-in Tools (10)
+## Built-in Tools (161)
 
-The agent automatically selects the right tool for each task:
+The agent automatically selects the right tool for each task from its extensive library of 161 built-in tools, organized into 10 specialized categories:
 
-### 1. `run_InstaHarvest v2_code`
+### 1. Instagram Core Tools
+Get profiles, parse posts, extract reels, stories, and comments.
 
-Execute Python code in a secure sandbox with access to `ig` (Instagram client).
+### 2. Media & Social Tools
+Follow, like, comment, and send Direct Messages (DMs) seamlessly.
 
-```text
-Agent decides to run:
-    user = ig.users.get_by_username("cristiano")
-    print(f"Followers: {user.followers:,}")
-```
+### 3. Analytics & Growth Tools
+Compare multiple accounts, calculate engagement rates, and find peak posting times.
 
-### 2. `save_to_file`
+### 4. Automation & Monitoring Tools
+Schedule future posts, auto-greet new followers, and monitor target accounts.
 
-Save content to CSV, JSON, or TXT files.
+### 5. Bulk & Pipeline Tools
+Export data directly to SQLite databases, JSONL pipelines, and bulk download user media.
 
-| Param | Type | Description |
-| --- | --- | --- |
-| `filename` | `str` | Output file name |
-| `content` | `str` | File content |
-| `format` | `str` | `csv`, `json`, or `txt` |
+### 6. Network & Web Tools
+Run DuckDuckGo internet searches and send authenticated HTTP API requests.
 
-### 3. `ask_user`
+### 7. Auth & Context Tools
+Securely authenticate, validate sessions, perform checkups, and cycle proxies.
 
-Ask the user a clarifying question before proceeding.
+### 8. File I/O Tools
+Sandboxed tools to read CSV/JSON, save output logs, and manage local directory file structures.
 
-### 4. `read_file`
+### 9. Utility & Transformation Tools
+Parse complex JSON objects, transform CSV to JSON, perform numeric calculations, and merge files.
 
-Read file contents from current directory (CSV, JSON, TXT).
-
-| Param | Type | Description |
-| --- | --- | --- |
-| `filename` | `str` | File path (relative only) |
-| `max_lines` | `int` | Max lines to read (default: 100) |
-
-### 5. `list_files`
-
-List files in a directory with size and modification time.
-
-### 6. `download_media`
-
-Download Instagram photos/videos via instaharvest_v2.
-
-| Param | Type | Description |
-| --- | --- | --- |
-| `url` | `str` | Instagram post/story URL |
-| `output_dir` | `str` | Save directory (default: `.`) |
-
-### 7. `analyze_data`
-
-Statistical analysis on data from files or raw input.
-
-| Param | Type | Description |
-| --- | --- | --- |
-| `source` | `str` | File path or raw JSON |
-| `analysis_type` | `str` | `summary`, `top_n`, `distribution`, `compare`, `trend` |
-| `field` | `str` | Field to analyze |
-| `top_n` | `int` | Top N count (default: 10) |
-
-### 8. `http_request`
-
-Make HTTP requests to external APIs.
-
-| Param | Type | Description |
-| --- | --- | --- |
-| `url` | `str` | Request URL |
-| `method` | `str` | `GET` or `POST` |
-| `headers` | `dict` | Request headers |
-| `body` | `str` | Request body |
-
-### 9. `create_chart`
-
-Create ASCII charts (no matplotlib dependency).
-
-| Param | Type | Description |
-| --- | --- | --- |
-| `chart_type` | `str` | `bar`, `line`, `pie` |
-| `labels` | `list` | Label array `["A", "B", "C"]` |
-| `values` | `list` | Value array `[10, 20, 30]` |
-| `title` | `str` | Chart title |
-| `filename` | `str` | Output file (default: `chart.txt`) |
-
-### 10. `search_web`
-
-Search the internet via DuckDuckGo Lite.
-
-| Param | Type | Description |
-| --- | --- | --- |
-| `query` | `str` | Search query |
-| `max_results` | `int` | Max results (default: 5) |
+### 10. `run_InstaHarvest v2_code`
+Execute custom Python code in a secure sandbox with direct access to the `ig` client when standard tools aren't enough.
 
 ---
 

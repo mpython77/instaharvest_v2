@@ -43,6 +43,15 @@ class AsyncABTestAPI:
     """
 
     def __init__(self, client, upload_api=None, media_api=None, analytics_api=None):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+            upload_api: Parameter upload_api
+            media_api: Parameter media_api
+            analytics_api: Parameter analytics_api
+        """
         self._client = client
         self._upload = upload_api
         self._media = media_api
@@ -394,5 +403,5 @@ class AsyncABTestAPI:
             try:
                 with open(self._storage_file, "r") as f:
                     self._tests = json.load(f)
-            except Exception:
+            except Exception as e:
                 self._tests = {}

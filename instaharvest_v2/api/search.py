@@ -26,6 +26,12 @@ class SearchAPI:
     """Instagram Search API"""
 
     def __init__(self, client: HttpClient):
+        """
+        Init.
+
+        Args:
+            client: Parameter client
+        """
         self._client = client
 
     # ─── GENERAL SEARCH ─────────────────────────────────────
@@ -283,8 +289,8 @@ class SearchAPI:
                     if username not in users:
                         try:
                             users[username] = UserShort(**user_data)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"operation failed: {e}")
 
                 # Tagged users (main media)
                 self._extract_tagged_users(media_data, users)
@@ -317,8 +323,8 @@ class SearchAPI:
                     if username not in users:
                         try:
                             users[username] = UserShort(**tagged_user)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"operation failed: {e}")
 
     # ─── LEGACY: web_search (old method, backward compat) ────
 

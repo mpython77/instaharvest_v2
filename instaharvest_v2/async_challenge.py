@@ -37,11 +37,24 @@ class AsyncChallengeHandler:
         ] = None,
         preferred_method: ChallengeType = ChallengeType.EMAIL,
     ):
+        """
+        Init.
+
+        Args:
+            code_callback: Parameter code_callback
+            preferred_method: Parameter preferred_method
+        """
         self._code_callback = code_callback
         self._preferred_method = preferred_method
 
     @property
     def is_enabled(self) -> bool:
+        """
+        Is enabled.
+
+        Returns:
+            Return value of is_enabled
+        """
         return self._code_callback is not None
 
     async def _get_code(self, ctx: ChallengeContext) -> str:
@@ -120,7 +133,8 @@ class AsyncChallengeHandler:
         resp = await session.get(url, headers=headers, timeout=15)
         try:
             return resp.json()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Challenge info JSON parse failed: {e}")
             return self._parse_challenge_html(resp.text)
 
     async def _select_method(self, session, url, headers, method) -> Dict[str, Any]:
@@ -132,7 +146,8 @@ class AsyncChallengeHandler:
         )
         try:
             return resp.json()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Select method JSON parse failed: {e}")
             return {"status": "fail", "raw": resp.text[:500]}
 
     async def _submit_code(self, session, url, headers, code) -> Dict[str, Any]:
@@ -143,7 +158,8 @@ class AsyncChallengeHandler:
         )
         try:
             return resp.json()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Submit code JSON parse failed: {e}")
             return {"status": "fail", "raw": resp.text[:500]}
 
     async def _handle_verification(
@@ -217,7 +233,8 @@ class AsyncChallengeHandler:
         )
         try:
             result = resp.json()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Consent response JSON parse failed: {e}")
             result = {"status": "fail"}
 
         success = result.get("status") == "ok"
