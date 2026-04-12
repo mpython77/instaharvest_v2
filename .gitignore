@@ -21,6 +21,8 @@ htmlcov/
 .hypothesis/
 .tox/
 .nox/
+.adk/
+.agent/
 
 # Debug/dump files
 _*.json
