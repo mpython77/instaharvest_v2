@@ -203,6 +203,8 @@ def parse_graphql_user(user: Dict) -> Dict:
         "related_profiles": related_profiles,
         # Posts
         "recent_posts": parse_timeline_edges(edges_media.get("edges", [])),
+        "has_next_page": edges_media.get("page_info", {}).get("has_next_page", False),
+        "end_cursor": edges_media.get("page_info", {}).get("end_cursor"),
     }
 
 
@@ -428,6 +430,7 @@ def parse_mobile_feed_item(item: Dict) -> Dict:
         image_url = best.get("url", "")
 
     media_type_map = {1: "GraphImage", 2: "GraphVideo", 8: "GraphSidecar"}
+    post_type_map = {1: "image", 2: "video", 8: "carousel"}
     raw_type = item.get("media_type", 1)
 
     shortcode = item.get("code")
@@ -441,6 +444,7 @@ def parse_mobile_feed_item(item: Dict) -> Dict:
         "shortcode": shortcode,
         "post_url": f"https://www.instagram.com/p/{shortcode}/" if shortcode else "",
         "media_type": media_type_map.get(raw_type, f"type_{raw_type}"),
+        "post_type": post_type_map.get(raw_type, "image"),
         "media_type_raw": raw_type,
         "display_url": image_url,
         "is_video": raw_type == 2,

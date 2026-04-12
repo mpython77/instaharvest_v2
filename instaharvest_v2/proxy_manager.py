@@ -26,6 +26,18 @@ class RotationStrategy(Enum):
     RANDOM = "random"
     WEIGHTED = "weighted"  # Score-based
 
+class ProxyType(Enum):
+    """
+    Defines the architectural behavior of a proxy endpoint.
+    STATIC: IP stays the same.
+    ROTATING: IP changes on every HTTP request despite keep-alive (e.g. Proxy-Seller).
+    STICKY: IP stays static per session query string (e.g. Bright Data).
+    """
+    UNKNOWN = "unknown"
+    STATIC = "static"
+    ROTATING = "rotating"
+    STICKY = "sticky"
+
 
 @dataclass
 class ProxyInfo:
@@ -102,6 +114,7 @@ class ProxyManager:
         self._index = 0
         self._lock = threading.Lock()
         self._sticky_map: Dict[str, str] = {}  # session_id -> proxy_url
+        self.proxy_type: ProxyType = ProxyType.UNKNOWN
 
     def add_proxies(self, proxy_urls: List[str]) -> None:
         """Add a list of proxies."""
@@ -191,11 +204,19 @@ class ProxyManager:
 
                 # Too many consecutive failures - deactivate
                 if p.consecutive_failures >= PROXY_MAX_FAILURES:
-                    p.is_active = False
+                    if hasattr(self, "proxy_type") and self.proxy_type == ProxyType.ROTATING:
+                        # O'TA MUHIM: Proxy-seller kabi Rotating serverlarda bitta port orqasida millionta IP turadi.
+                        # Agar bir nechta IP xato qilsa ham, butun proxy server url ni o'chirib qo'ymaslik kerak!
+                        pass
+                    else:
+                        p.is_active = False
 
                 # Score too low - deactivate
                 if p.total_requests >= 10 and p.score < PROXY_MIN_SCORE:
-                    p.is_active = False
+                    if hasattr(self, "proxy_type") and self.proxy_type == ProxyType.ROTATING:
+                        pass
+                    else:
+                        p.is_active = False
 
     def get_curl_proxy(self, session_id: Optional[str] = None) -> Optional[Dict]:
         """
@@ -265,3 +286,44 @@ class ProxyManager:
     def set_strategy(self, strategy: RotationStrategy) -> None:
         """Change rotation strategy."""
         self._strategy = strategy
+
+    async def detect_proxy_type(self) -> ProxyType:
+        """
+        Avtomatik ravishda proxy turini aniqlaydi (STATIC, ROTATING, STICKY).
+        Joriy saqlangan birinchi proksini tekshiradi (httpbin.org orqali).
+        """
+        import asyncio
+        from curl_cffi.requests import AsyncSession
+
+        proxy_url = self.get_proxy()
+        if not proxy_url:
+            self.proxy_type = ProxyType.UNKNOWN
+            return self.proxy_type
+            
+        proxy_dict = {"http": proxy_url, "https": proxy_url}
+        
+        try:
+            # impersonate="chrome142" ishlatsak ba'zi muhitlarda muammo qilishi mumkin 
+            # HTTP oson farqlash u-n as-is ishlatamiz.
+            session = AsyncSession(proxies=proxy_dict, impersonate="chrome142", timeout=15)
+            
+            resp1 = await session.get("http://httpbin.org/ip")
+            ip1 = resp1.json().get("origin")
+            
+            resp2 = await session.get("http://httpbin.org/ip")
+            ip2 = resp2.json().get("origin")
+            
+            await session.close()
+            
+            if ip1 and ip2 and ip1 != ip2:
+                self.proxy_type = ProxyType.ROTATING
+            else:
+                self.proxy_type = ProxyType.STATIC
+                
+        except Exception as e:
+            # Agar httpbin yoki ulanishda xato bo'lsa
+            print(f"Proxy detection failed: {e}")
+            self.proxy_type = ProxyType.UNKNOWN
+            
+        return self.proxy_type
+

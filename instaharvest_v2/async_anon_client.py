@@ -817,6 +817,24 @@ class AsyncAnonClient:
         Strategy order is controlled by self._profile_strategies.
         Default: Web API → GraphQL → HTML parse.
         """
+        # --- ROTATING PROXY ANTI-DETECT OVERRIDE ---
+        # Agar proxy aylanma (har so'rovda yangi IP) bo'lsa, zanjirli fallbackni bekor qilamiz.
+        # Sababi: Bitta profilga 3 ta xil IPdan ketma-ket so'rov yuborish anti-bot tizimini darhol faollashtiradi!
+        from .proxy_manager import ProxyType
+        if self._proxy_mgr and hasattr(self._proxy_mgr, "proxy_type") and self._proxy_mgr.proxy_type == ProxyType.ROTATING:
+            logger.info(f"[AsyncAnon] Rotating Proxy aniqlandi. Zanjir qisqartirildi (faqat WEB_API). Profil: {username}")
+            try:
+                result = await self._get_web_profile_parsed(username)
+                if result and (result.get("username") or result.get("followers")):
+                    result["_strategy"] = ProfileStrategy.WEB_API.value
+                    return result
+            except Exception as e:
+                logger.debug(f"[AsyncAnon] Aylanma proxy uchun Web API xatosi: {e}")
+            
+            logger.warning(f"[AsyncAnon] Rotating Proxy tufayli barcha boshqa APIlar bekor qilindi. Profil '{username}' olinmadi.")
+            return None
+
+        # --- NORMAL STATIC/STICKY CHAIN ---
         strategy_map = {
             ProfileStrategy.WEB_API: lambda: self._get_web_profile_parsed(username),
             ProfileStrategy.GRAPHQL: lambda: self._graphql_profile_fallback(username),

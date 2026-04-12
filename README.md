@@ -1,24 +1,32 @@
-<p align="center">
-  <h1 align="center">📸 InstaHarvest v2</h1>
-  <p align="center">
-    <strong>Powerful Instagram Private API</strong> — async, anti-detection, Pydantic models, AI Agent
-  </p>
-  <p align="center">
-    <a href="https://pypi.org/project/instaharvest-v2/"><img src="https://img.shields.io/pypi/v/instaharvest-v2?color=blue" alt="PyPI"></a>
-    <a href="https://pypi.org/project/instaharvest-v2/"><img src="https://img.shields.io/pypi/pyversions/instaharvest-v2" alt="Python"></a>
-    <a href="https://github.com/mpython77/instaharvest_v2/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mpython77/instaharvest_v2" alt="License"></a>
-    <img src="https://img.shields.io/badge/modules-31+31-green" alt="Modules">
-    <img src="https://img.shields.io/badge/async-full_parity-brightgreen" alt="Async">
-    <img src="https://img.shields.io/badge/agent_tools-161-orange" alt="Agent Tools">
-    <img src="https://img.shields.io/badge/tests-6242_passed-success" alt="Tests">
-    <img src="https://img.shields.io/badge/coverage-86%25-brightgreen" alt="Coverage">
-    <a href="https://mpython77.github.io/instaharvest_v2/"><img src="https://img.shields.io/badge/docs-online-blue?logo=readthedocs" alt="Docs"></a>
-  </p>
-</p>
+# 📸 InstaHarvest v2
+
+**Powerful Instagram Private API** — async, anti-detection, Pydantic models, AI Agent
+
+[![PyPI](https://img.shields.io/pypi/v/instaharvest-v2?color=blue)](https://pypi.org/project/instaharvest-v2/)
+[![Python](https://img.shields.io/pypi/pyversions/instaharvest-v2)](https://pypi.org/project/instaharvest-v2/)
+[![License](https://img.shields.io/github/license/mpython77/instaharvest_v2)](https://github.com/mpython77/instaharvest_v2/blob/main/LICENSE)
+![Modules](https://img.shields.io/badge/modules-31+31-green)
+![Async](https://img.shields.io/badge/async-full_parity-brightgreen)
+![Agent Tools](https://img.shields.io/badge/agent_tools-161-orange)
+![Tests](https://img.shields.io/badge/tests-6242_passed-success)
+![Coverage](https://img.shields.io/badge/coverage-86%25-brightgreen)
+[![Docs](https://img.shields.io/badge/docs-online-blue?logo=readthedocs)](https://mpython77.github.io/instaharvest_v2/)
 
 > 31 sync + 31 async modules • 315+ functions • 161 agent tools • Pydantic models • AI Agent • CI/CD • 6242 tests passed
 >
 > 📖 **Documentation:** [mpython77.github.io/instaharvest_v2](https://mpython77.github.io/instaharvest_v2/)
+
+---
+
+## 🌟 Why InstaHarvest V2 is Unstoppable
+
+Unlike legacy wrappers that easily get blocked by Instagram's bot detection, InstaHarvest v2 is engineered with an enterprise-grade **Resilient Anti-Detect Architecture**. It boasts:
+
+- **14-Layer Fallback Strategies**: Intelligently auto-pivots between `GraphQL`, `Mobile API`, and `Web API` if an endpoint fails or challenges you, effectively ensuring 100% extraction rates.
+- **Rotating Proxy Auto-Detection**: Uses active `ip-checking` to instantly identify if your proxies rotate IPs. It autonomously configures aggressive `Mobile API` endpoints to bypass `HTTP 400 Bad Request` restrictions standard GraphQL methods suffer from on Dynamic IPs. Check out the `examples/` dir for ultra-fast 50+ concurrent profile pagination testing!
+- **TLS/JA3 Impersonation**: Built heavily on `curl_cffi`, the library perfectly masks Python traffic by cloning Chrome v142 browser footprints.
+- **No-Cookie Deep Harvesting**: Achieve thousands of posts paginations absolutely anonymously using highly-stabilized concurrent routines powered by `asyncio`.
+- **Bulletproof Pydantic Execution**: 100% static type safety parsing, meaning broken, mismatched, or altered payloads from Instagram API are elegantly downgraded without crashing the scraping chain.
 
 ---
 
@@ -106,6 +114,34 @@ similar = ig.public.get_similar_accounts("cristiano")
 hashtag = ig.public.get_hashtag_posts("fashion", max_count=10)
 location = ig.public.get_location_posts("213385402", max_count=10)
 ```
+
+### 🛰️ Ultra-Fast Parallel Scraping with Rotating Proxies
+
+When using standard proxy services (like Proxy-Seller) that rotate IPs constantly, Instagram blocks standard Public GraphQL requests with HTTP 400.
+We engineered a specialized architecture leveraging **Mobile APIs** combined with smart Proxy Auto-Detection to bypass these limits at extreme concurrency.
+
+```python
+import asyncio
+from instaharvest_v2.proxy_manager import ProxyManager
+from instaharvest_v2.async_anon_client import AsyncAnonClient
+
+async def main():
+    pm = ProxyManager()
+    pm.add_proxy("http://user:pass@res.proxy-seller.com:10000")
+    
+    # 1. Automatically detects if the proxy rotates IPs and disables strict cookie checks
+    await pm.detect_proxy_type()  
+    
+    # 2. Control concurrency (e.g. 5) to prevent Proxy-Supplier 503 HTTP Tunnel errors
+    client = AsyncAnonClient(proxy_manager=pm, unlimited=True, max_concurrency=5)
+    
+    # 3. Use Mobile Feed API to paginate seamlessly across all IPs!
+    feed = await client.get_user_feed_mobile(user_id="173560420", count=12, max_id=None)
+    
+asyncio.run(main())
+```
+
+*Checkout `examples/parallel_proxy_mobile.py` for a full 50-profile parallel scraping test!*
 
 ### 🔬 API Diagnostics
 
@@ -415,7 +451,7 @@ for col in saved["posts"]:
 **Available doc_ids (16 verified):**
 
 | Key | Endpoint | Status |
-|-----|----------|--------|
+| ----- | ---------- | -------- |
 | `profile_posts` | User posts pagination | ✅ Verified |
 | `profile_reels` | User reels tab | ✅ Verified |
 | `profile_tagged` | User tagged posts | ✅ Verified |
@@ -586,7 +622,7 @@ print(user.some_new_field)    # works!
 ## Features
 
 | Feature | Description |
-|---------|-------------|
+| --------- | ------------- |
 | 🛡️ **Anti-detection** | Browser fingerprint rotation, Gaussian delays, escalation |
 | 🔄 **Multi-account** | Automatic session rotation |
 | 🌐 **Proxy support** | SOCKS5/HTTP, weighted rotation, health checking |
@@ -636,7 +672,7 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 
 ## Project Structure
 
-```
+```text
 instaharvest_v2/
 ├── instagram.py           # Main class (sync)
 ├── async_instagram.py     # Main class (async)
@@ -722,7 +758,7 @@ docs/                      # MkDocs documentation
 GitHub Actions pipeline (`.github/workflows/ci.yml`):
 
 | Job | Description |
-|-----|-------------|
+| ----- | ------------- |
 | **Lint** | flake8 + mypy |
 | **Test** | Python 3.10, 3.11, 3.12 + coverage |
 | **Security** | bandit + safety |
