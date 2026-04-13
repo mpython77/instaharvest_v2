@@ -750,7 +750,7 @@ class AsyncAuthAPI:
             result = json.loads(json_text)
         except Exception as e:
             # Try to detect success from Set-Cookie headers
-            pass
+            logger.debug(f"[Auth] Wbloks JSON parse failed (may be success via cookies): {e}")
 
         # Check if login succeeded via Set-Cookie (ds_user_id cookie = success)
         ds_user_id_cookie = None
@@ -1255,7 +1255,7 @@ class AsyncAuthAPI:
                             "challenge_resolved": True,
                         }
                 except Exception as e:
-                    pass  # Fall through to ChallengeHandler
+                    logger.debug(f"[Auth] 'This Was Me' confirmation failed, falling through to ChallengeHandler: {e}")
 
         except Exception as e:
             logger.warning(f"[Auth] Checkpoint page fetch failed: {e}")

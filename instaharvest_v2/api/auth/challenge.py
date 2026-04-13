@@ -251,7 +251,7 @@ class ChallengeMixin:
                             "challenge_resolved": True,
                         }
                 except Exception as e:
-                    pass  # Fall through to ChallengeHandler
+                    logger.debug(f"[Auth] 'This Was Me' confirmation failed, falling through to ChallengeHandler: {e}")
 
         except Exception as e:
             logger.warning(f"[Auth] Checkpoint page fetch failed: {e}")
