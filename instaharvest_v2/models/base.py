@@ -69,14 +69,7 @@ class InstaModel(BaseModel):
             # If we know it's not a valid format and the test enforces 'None', we can just return v
             # Wait, Pydantic 2.x fails hard on invalid strings!
             # Let's try parsing it with datetime.fromisoformat, if it fails, return None.
-            try:
-                # Basic check
-                if v_stripped != "":
-                    # Pydantic can parse standard dates, we return `v_stripped`
-                    # but if it's completely invalid, we should catch it.
-                    pass
-            except Exception:
-                pass
+
         return v
 
     def to_dict(self) -> Dict[str, Any]:

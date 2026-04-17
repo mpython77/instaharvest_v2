@@ -333,7 +333,7 @@ class AsyncMonitorAPI:
         old_followers = prev.get("followers", 0)
         new_followers = current.get("followers", 0)
         if old_followers != new_followers and watcher._on_follower_change:
-            watcher._fire(watcher._on_follower_change, old_followers, new_followers)
+            await watcher._fire(watcher._on_follower_change, old_followers, new_followers)
             await self._log_event(watcher.username, "follower_change", {"old": old_followers, "new": new_followers})
             events += 1
 
@@ -352,7 +352,7 @@ class AsyncMonitorAPI:
                             "caption": (item.get("caption", {}) or {}).get("text", ""),
                             "like_count": item.get("like_count", 0),
                         }
-                        watcher._fire(watcher._on_new_post, post_info)
+                        await watcher._fire(watcher._on_new_post, post_info)
                         await self._log_event(watcher.username, "new_post", post_info)
                         events += 1
 
@@ -360,7 +360,7 @@ class AsyncMonitorAPI:
         old_bio = prev.get("biography", "")
         new_bio = current.get("biography", "")
         if old_bio != new_bio and watcher._on_bio_change:
-            watcher._fire(watcher._on_bio_change, old_bio, new_bio)
+            await watcher._fire(watcher._on_bio_change, old_bio, new_bio)
             await self._log_event(watcher.username, "bio_change", {"old": old_bio[:80], "new": new_bio[:80]})
             events += 1
 
@@ -369,7 +369,7 @@ class AsyncMonitorAPI:
             old_val = prev.get(field)
             new_val = current.get(field)
             if old_val != new_val and watcher._on_profile_change:
-                watcher._fire(watcher._on_profile_change, field, old_val, new_val)
+                await watcher._fire(watcher._on_profile_change, field, old_val, new_val)
                 await self._log_event(watcher.username, "profile_change", {"field": field})
                 events += 1
 
