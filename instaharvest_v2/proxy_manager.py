@@ -11,7 +11,7 @@ Smart proxy rotation system:
 import time
 import random
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Dict
 from enum import Enum
 
@@ -25,6 +25,7 @@ class RotationStrategy(Enum):
     ROUND_ROBIN = "round_robin"
     RANDOM = "random"
     WEIGHTED = "weighted"  # Score-based
+
 
 class ProxyType(Enum):
     """
@@ -298,38 +299,36 @@ class ProxyManager:
         Avtomatik ravishda proxy turini aniqlaydi (STATIC, ROTATING, STICKY).
         Joriy saqlangan birinchi proksini tekshiradi (httpbin.org orqali).
         """
-        import asyncio
         from curl_cffi.requests import AsyncSession
 
         proxy_url = self.get_proxy()
         if not proxy_url:
             self.proxy_type = ProxyType.UNKNOWN
             return self.proxy_type
-            
+
         proxy_dict = {"http": proxy_url, "https": proxy_url}
-        
+
         try:
-            # impersonate="chrome142" ishlatsak ba'zi muhitlarda muammo qilishi mumkin 
+            # impersonate="chrome142" ishlatsak ba'zi muhitlarda muammo qilishi mumkin
             # HTTP oson farqlash u-n as-is ishlatamiz.
             session = AsyncSession(proxies=proxy_dict, impersonate="chrome142", timeout=15)
-            
+
             resp1 = await session.get("http://httpbin.org/ip")
             ip1 = resp1.json().get("origin")
-            
+
             resp2 = await session.get("http://httpbin.org/ip")
             ip2 = resp2.json().get("origin")
-            
+
             await session.close()
-            
+
             if ip1 and ip2 and ip1 != ip2:
                 self.proxy_type = ProxyType.ROTATING
             else:
                 self.proxy_type = ProxyType.STATIC
-                
+
         except Exception as e:
             # Agar httpbin yoki ulanishda xato bo'lsa
             print(f"Proxy detection failed: {e}")
             self.proxy_type = ProxyType.UNKNOWN
-            
-        return self.proxy_type
 
+        return self.proxy_type

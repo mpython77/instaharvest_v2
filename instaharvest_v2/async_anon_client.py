@@ -32,8 +32,7 @@ import logging
 import random
 import re
 import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from curl_cffi.requests import AsyncSession
 
@@ -42,9 +41,6 @@ from .proxy_manager import ProxyManager
 from . import parsers as _parsers
 from .strategy import (
     ProfileStrategy,
-    PostsStrategy,
-    DEFAULT_PROFILE_STRATEGIES,
-    DEFAULT_POSTS_STRATEGIES,
     parse_profile_strategies,
     parse_posts_strategies,
 )
@@ -830,7 +826,7 @@ class AsyncAnonClient:
                     return result
             except Exception as e:
                 logger.debug(f"[AsyncAnon] Aylanma proxy uchun Web API xatosi: {e}")
-            
+
             logger.warning(f"[AsyncAnon] Rotating Proxy tufayli barcha boshqa APIlar bekor qilindi. Profil '{username}' olinmadi.")
             return None
 

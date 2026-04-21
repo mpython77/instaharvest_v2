@@ -20,7 +20,7 @@ import logging
 import random
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from curl_cffi import requests as curl_requests
 
@@ -29,9 +29,6 @@ from .proxy_manager import ProxyManager
 from . import parsers as _parsers
 from .strategy import (
     ProfileStrategy,
-    PostsStrategy,
-    DEFAULT_PROFILE_STRATEGIES,
-    DEFAULT_POSTS_STRATEGIES,
     parse_profile_strategies,
     parse_posts_strategies,
 )
@@ -1322,7 +1319,7 @@ class AnonClient:
         Returns:
             List of similar user dicts
         """
-        endpoint = f"/discover/chaining/"
+        endpoint = "/discover/chaining/"
         params = {"target_id": str(user_id)}
 
         data = self.get_web_api(endpoint, params=params)
