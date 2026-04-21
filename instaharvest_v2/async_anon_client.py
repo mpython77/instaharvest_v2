@@ -421,7 +421,7 @@ class AsyncAnonClient:
                         if proxy_url:
                             kwargs["proxies"] = {"https": proxy_url, "http": proxy_url}
 
-        raise AsyncStrategyFailed(f"All attempts failed for {strategy}: {last_error}")
+        raise AsyncStrategyFailed(f"All attempts failed for {strategy}: {last_error}") from last_error
 
     async def _human_delay(self) -> None:
         """Natural delay between requests. Skipped in unlimited mode."""
@@ -1314,7 +1314,8 @@ class AsyncAnonClient:
             try:
                 session = await self._get_session()
                 response = await session.post(**kwargs)
-                self._request_count += 1
+                async with self._stats_lock:
+                    self._request_count += 1
 
                 # Report proxy success
                 if proxy:
@@ -1369,7 +1370,8 @@ class AsyncAnonClient:
                 raise
             except Exception as e:
                 last_error = e
-                self._error_count += 1
+                async with self._stats_lock:
+                    self._error_count += 1
                 if proxy:
                     self._proxy_mgr.report_failure(proxy)
                 self._anti_detect.on_error("network")
@@ -1386,7 +1388,7 @@ class AsyncAnonClient:
                         if proxy:
                             kwargs["proxies"] = {"https": proxy, "http": proxy}
 
-        raise AsyncStrategyFailed(f"All POST attempts failed for {strategy}: {last_error}")
+        raise AsyncStrategyFailed(f"All POST attempts failed for {strategy}: {last_error}") from last_error
 
     async def get_graphql_docid(
         self,
