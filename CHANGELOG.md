@@ -20,7 +20,7 @@
 - **agent/core.py** — Critical dispatch bug: generic `_execute_tool` fallback was not passing `ig=`, `is_logged_in=`, `cache=` arguments to Phase 5 tool handlers, causing all new tools to fail at runtime
 - **README.md** — Updated all outdated statistics (modules, tools, tests, coverage, project structure)
 
-### Removed (v1.1.4)
+### Removed (v1.1.77)
 
 - Cleaned up 49 unused `cov*.txt` coverage dump files
 - Cleaned up 11 unused `.json` test artifacts
