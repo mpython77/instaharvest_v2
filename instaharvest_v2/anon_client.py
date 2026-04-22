@@ -20,7 +20,7 @@ import logging
 import random
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from curl_cffi import requests as curl_requests
 
@@ -29,9 +29,6 @@ from .proxy_manager import ProxyManager
 from . import parsers as _parsers
 from .strategy import (
     ProfileStrategy,
-    PostsStrategy,
-    DEFAULT_PROFILE_STRATEGIES,
-    DEFAULT_POSTS_STRATEGIES,
     parse_profile_strategies,
     parse_posts_strategies,
 )
@@ -313,7 +310,7 @@ class AnonClient:
                         if proxy_info:
                             kwargs["proxies"] = {"https": proxy_info, "http": proxy_info}
 
-        raise StrategyFailed(f"All attempts failed for {strategy}: {last_error}")
+        raise StrategyFailed(f"All attempts failed for {strategy}: {last_error}") from last_error
 
     def _human_delay(self) -> None:
         """Natural delay between requests. Skipped in unlimited mode."""
@@ -619,7 +616,7 @@ class AnonClient:
                     if err_max > 0:
                         time.sleep(random.uniform(err_min, err_max))
 
-        raise StrategyFailed(f"All POST attempts failed for {strategy}: {last_error}")
+        raise StrategyFailed(f"All POST attempts failed for {strategy}: {last_error}") from last_error
 
     def get_graphql_docid(
         self,
@@ -1322,7 +1319,7 @@ class AnonClient:
         Returns:
             List of similar user dicts
         """
-        endpoint = f"/discover/chaining/"
+        endpoint = "/discover/chaining/"
         params = {"target_id": str(user_id)}
 
         data = self.get_web_api(endpoint, params=params)

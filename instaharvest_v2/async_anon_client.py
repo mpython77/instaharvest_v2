@@ -32,8 +32,7 @@ import logging
 import random
 import re
 import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from curl_cffi.requests import AsyncSession
 
@@ -42,9 +41,6 @@ from .proxy_manager import ProxyManager
 from . import parsers as _parsers
 from .strategy import (
     ProfileStrategy,
-    PostsStrategy,
-    DEFAULT_PROFILE_STRATEGIES,
-    DEFAULT_POSTS_STRATEGIES,
     parse_profile_strategies,
     parse_posts_strategies,
 )
@@ -421,7 +417,7 @@ class AsyncAnonClient:
                         if proxy_url:
                             kwargs["proxies"] = {"https": proxy_url, "http": proxy_url}
 
-        raise AsyncStrategyFailed(f"All attempts failed for {strategy}: {last_error}")
+        raise AsyncStrategyFailed(f"All attempts failed for {strategy}: {last_error}") from last_error
 
     async def _human_delay(self) -> None:
         """Natural delay between requests. Skipped in unlimited mode."""
@@ -830,7 +826,7 @@ class AsyncAnonClient:
                     return result
             except Exception as e:
                 logger.debug(f"[AsyncAnon] Aylanma proxy uchun Web API xatosi: {e}")
-            
+
             logger.warning(f"[AsyncAnon] Rotating Proxy tufayli barcha boshqa APIlar bekor qilindi. Profil '{username}' olinmadi.")
             return None
 
@@ -1314,7 +1310,8 @@ class AsyncAnonClient:
             try:
                 session = await self._get_session()
                 response = await session.post(**kwargs)
-                self._request_count += 1
+                async with self._stats_lock:
+                    self._request_count += 1
 
                 # Report proxy success
                 if proxy:
@@ -1369,7 +1366,8 @@ class AsyncAnonClient:
                 raise
             except Exception as e:
                 last_error = e
-                self._error_count += 1
+                async with self._stats_lock:
+                    self._error_count += 1
                 if proxy:
                     self._proxy_mgr.report_failure(proxy)
                 self._anti_detect.on_error("network")
@@ -1386,7 +1384,7 @@ class AsyncAnonClient:
                         if proxy:
                             kwargs["proxies"] = {"https": proxy, "http": proxy}
 
-        raise AsyncStrategyFailed(f"All POST attempts failed for {strategy}: {last_error}")
+        raise AsyncStrategyFailed(f"All POST attempts failed for {strategy}: {last_error}") from last_error
 
     async def get_graphql_docid(
         self,

@@ -11,7 +11,7 @@ Smart proxy rotation system:
 import time
 import random
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Dict
 from enum import Enum
 
@@ -25,6 +25,7 @@ class RotationStrategy(Enum):
     ROUND_ROBIN = "round_robin"
     RANDOM = "random"
     WEIGHTED = "weighted"  # Score-based
+
 
 class ProxyType(Enum):
     """
@@ -102,19 +103,23 @@ class ProxyManager:
         pm.report_failure(proxy)
     """
 
-    def __init__(self, strategy: RotationStrategy = RotationStrategy.WEIGHTED):
+    def __init__(self, strategy: RotationStrategy = RotationStrategy.WEIGHTED, proxy_type: ProxyType = ProxyType.UNKNOWN):
         """
         Init.
 
         Args:
-            strategy: Parameter strategy
+            strategy: Proxy rotation strategy
+            proxy_type: Proxy type (UNKNOWN, STATIC, ROTATING, STICKY).
+                        Set to ProxyType.ROTATING for rotating proxies (e.g. Proxy-Seller)
+                        to enable rotating-proxy-aware behavior. Alternatively call
+                        await detect_proxy_type() for automatic detection.
         """
         self._proxies: Dict[str, ProxyInfo] = {}
         self._strategy = strategy
         self._index = 0
         self._lock = threading.Lock()
         self._sticky_map: Dict[str, str] = {}  # session_id -> proxy_url
-        self.proxy_type: ProxyType = ProxyType.UNKNOWN
+        self.proxy_type: ProxyType = proxy_type
 
     def add_proxies(self, proxy_urls: List[str]) -> None:
         """Add a list of proxies."""
@@ -167,6 +172,8 @@ class ProxyManager:
 
     def _select_proxy(self, active: List[ProxyInfo]) -> ProxyInfo:
         """Select proxy based on strategy."""
+        if not active:
+            raise ValueError("No active proxies available")
         if self._strategy == RotationStrategy.ROUND_ROBIN:
             self._index = self._index % len(active)
             proxy = active[self._index]
@@ -292,38 +299,36 @@ class ProxyManager:
         Avtomatik ravishda proxy turini aniqlaydi (STATIC, ROTATING, STICKY).
         Joriy saqlangan birinchi proksini tekshiradi (httpbin.org orqali).
         """
-        import asyncio
         from curl_cffi.requests import AsyncSession
 
         proxy_url = self.get_proxy()
         if not proxy_url:
             self.proxy_type = ProxyType.UNKNOWN
             return self.proxy_type
-            
+
         proxy_dict = {"http": proxy_url, "https": proxy_url}
-        
+
         try:
-            # impersonate="chrome142" ishlatsak ba'zi muhitlarda muammo qilishi mumkin 
+            # impersonate="chrome142" ishlatsak ba'zi muhitlarda muammo qilishi mumkin
             # HTTP oson farqlash u-n as-is ishlatamiz.
             session = AsyncSession(proxies=proxy_dict, impersonate="chrome142", timeout=15)
-            
+
             resp1 = await session.get("http://httpbin.org/ip")
             ip1 = resp1.json().get("origin")
-            
+
             resp2 = await session.get("http://httpbin.org/ip")
             ip2 = resp2.json().get("origin")
-            
+
             await session.close()
-            
+
             if ip1 and ip2 and ip1 != ip2:
                 self.proxy_type = ProxyType.ROTATING
             else:
                 self.proxy_type = ProxyType.STATIC
-                
+
         except Exception as e:
             # Agar httpbin yoki ulanishda xato bo'lsa
             print(f"Proxy detection failed: {e}")
             self.proxy_type = ProxyType.UNKNOWN
-            
-        return self.proxy_type
 
+        return self.proxy_type

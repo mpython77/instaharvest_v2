@@ -28,6 +28,8 @@ htmlcov/
 _*.json
 _*.txt
 _*.py
+!__init__.py
+!__main__.py
 *.log
 debug_logs/
 

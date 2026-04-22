@@ -109,7 +109,7 @@ For profile info: ONE tool call (`get_profile`) is enough! Do NOT write code!
 14. ⚠️ PYTHON 3.10 CRITICAL — BACKSLASH IN F-STRINGS IS ILLEGAL:
     BANNED: f"{'Yo\'q'}" — WILL ALWAYS CRASH with SyntaxError!
     BANNED: f"{'Ha' if x else 'Yo\'q'}" — WILL ALWAYS CRASH!
-    BANNED: Any backslash (\) inside f-string { } braces
+    BANNED: Any backslash (\\) inside f-string { } braces
     SOLUTION: Always compute the value BEFORE the f-string:
       verified = 'Yes' if data.get('is_verified') else 'No'
       print(f"Verified: {verified}")
