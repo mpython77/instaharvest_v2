@@ -148,7 +148,8 @@ pip install instaharvest-v2[all]      # everything
 
     ```python
     from instaharvest_v2 import Instagram
-    from instaharvest_v2.agent import InstaAgent, Permission
+    from instaharvest_v2.agent.core import InstaAgent
+    from instaharvest_v2.agent.permissions import Permission
 
     ig = Instagram.from_env(".env")
     agent = InstaAgent(

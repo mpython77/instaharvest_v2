@@ -464,8 +464,8 @@ for col in saved["posts"]:
 | `feed_saved` | Saved collections | ✅ Verified |
 | `media_comments` | Post comments | ✅ Verified |
 | `like_media` | Like mutation | ✅ Verified |
-| `stories_seen` | Story seen mutation | ✅ Stored |
-| `search_null_state` | Search initial state | ✅ Stored |
+| `stories_seen` | Story seen mutation | ✅ Verified |
+| `search_null_state` | Search initial state | ✅ Verified |
 | `feed_liked` | Liked posts | REST fallback |
 | `feed_tag` | Hashtag feed | REST fallback |
 
