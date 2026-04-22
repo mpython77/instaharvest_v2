@@ -11,11 +11,14 @@ Smart proxy rotation system:
 import time
 import random
 import threading
+import logging
 from dataclasses import dataclass
 from typing import List, Optional, Dict
 from enum import Enum
 
 from .config import PROXY_MAX_FAILURES, PROXY_MIN_SCORE
+
+logger = logging.getLogger("instaharvest_v2")
 
 
 class RotationStrategy(Enum):
@@ -328,7 +331,7 @@ class ProxyManager:
 
         except Exception as e:
             # Agar httpbin yoki ulanishda xato bo'lsa
-            print(f"Proxy detection failed: {e}")
+            logger.warning(f"Proxy detection failed: {e}")
             self.proxy_type = ProxyType.UNKNOWN
 
         return self.proxy_type

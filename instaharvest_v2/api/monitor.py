@@ -326,6 +326,8 @@ class MonitorAPI:
             return 0
 
         prev = watcher._last_state
+        if prev is None:
+            return 0
 
         # ─── Check for changes ────────────────────────────
 
