@@ -339,6 +339,12 @@ class ChallengeHandler:
         )
 
         # Get code from user
+        if not self._code_callback:
+            return ChallengeResult(
+                success=False,
+                challenge_type=challenge_type,
+                message="No code callback configured",
+            )
         logger.info(f"Requesting code from user (sent to {contact_point})")
         code = self._code_callback(ctx)
 

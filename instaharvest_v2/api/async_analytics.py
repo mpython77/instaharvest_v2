@@ -93,8 +93,8 @@ class AsyncAnalyticsAPI:
                 "rating": "no_data",
             }
 
-        total_likes = sum(await self._get_likes(p) for p in posts)
-        total_comments = sum(await self._get_comments(p) for p in posts)
+        total_likes = sum([await self._get_likes(p) for p in posts])
+        total_comments = sum([await self._get_comments(p) for p in posts])
         n = len(posts)
 
         avg_likes = total_likes / n
@@ -348,7 +348,7 @@ class AsyncAnalyticsAPI:
         logger.info(
             f"📊 Content @{username}: {len(posts)} posts | "
             f"freq={posting_frequency:.1f}/week | "
-            f"types={dict(Counter(await self._get_media_type(p) for p in posts))}"
+            f"types={dict(Counter([await self._get_media_type(p) for p in posts]))}"
         )
         return result
 

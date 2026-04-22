@@ -145,7 +145,7 @@ def resolve_auth_platform(
     user_agent: str,
     challenge_callback: Optional[Callable] = None,
     username: str = "",
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     """
     Resolve auth_platform challenge using Instagram's GraphQL API.
 
@@ -174,7 +174,6 @@ def resolve_auth_platform(
         return None
 
     logger.info(f"[AuthPlatform] apc extracted ({len(encrypted_ap_context)} chars)")
-    print(f"[DEBUG-AP] apc: {encrypted_ap_context[:60]}...")
 
     # Step 1: Visit checkpoint page (triggers email send + extract tokens)
     logger.info("[AuthPlatform] Visiting checkpoint page (triggers email send)...")
@@ -220,7 +219,7 @@ def resolve_auth_platform(
 
     logger.info("[AuthPlatform] Waiting for verification code from email...")
     code = challenge_callback()
-    print(f"[DEBUG-AP] Got code from email: {code}")
+    logger.debug("[AuthPlatform] Got code from email")
     if not code:
         logger.warning("[AuthPlatform] No verification code received")
         return None
