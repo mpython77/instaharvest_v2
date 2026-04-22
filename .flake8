@@ -1,0 +1,48 @@
+[flake8]
+max-line-length = 120
+extend-ignore =
+    # Unused imports — large pre-existing codebase debt
+    F401,
+    # Local variable assigned but never used (common in except clauses)
+    F841,
+    # Redefinition of unused name from import
+    F811,
+    # Multiple statements on one line (def) — stub pattern
+    E704,
+    # Multiple spaces after ':' — dict alignment
+    E241,
+    # Multiple spaces before operator — column alignment
+    E221,
+    # At least two spaces before inline comment
+    E261,
+    # Expected 1 blank line before nested definition
+    E301,
+    # Expected 2 blank lines before class/function
+    E302,
+    # Too many blank lines
+    E303,
+    # Expected 2 blank lines after class or function definition
+    E305,
+    # Multiple imports on one line
+    E401,
+    # Multiple statements on one line (colon)
+    E701,
+    # Ambiguous variable name
+    E741,
+    # f-string without placeholders
+    F541,
+    # Trailing whitespace
+    W291,
+    # Blank line contains whitespace
+    W293,
+    # Blank line at end of file
+    W391,
+    # No newline at end of file
+    W292,
+    # Continuation line indentation
+    E126,
+    E127,
+    E128,
+    E131,
+    # Line break after binary operator
+    W504,

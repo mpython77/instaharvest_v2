@@ -23,6 +23,7 @@ from .proxy_manager import ProxyManager
 from .rate_limiter import RateLimiter
 from .session_manager import SessionManager, SessionInfo
 from .log_config import get_debug_logger
+from .http_utils import build_request_headers
 from .config import (
     API_BASE,
     BASE_URL,
