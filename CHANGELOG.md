@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.1.88] — 2026-05-28
+
+### Added (v1.1.88)
+
+- **core/ package** — Enterprise-grade infrastructure layer (zero external runtime dependencies):
+  - `circuit_breaker.py` — Three-state failure isolation (CLOSED/OPEN/HALF_OPEN) with per-endpoint registry
+  - `token_bucket.py` — O(1) rate limiting with burst capacity (sync + async variants)
+  - `response_cache.py` — LRU + TTL cache with stale-while-revalidate support
+  - `connection_pool.py` — curl_cffi session pooling with health tracking and auto-recycling
+  - `metrics.py` — Prometheus-compatible counters/gauges/histograms (in-process, no external deps)
+  - `structured_logging.py` — JSON log entries with correlation IDs and automatic PII redaction
+- **_lazy_modules.py** — Lazy API module registry; Instagram class modules loaded on first access
+- **_endpoint_keys.py** — URL normalization for circuit breaker keys and metrics labels
+- **_http_metrics.py** — Pre-declared HTTP metric instances (requests, duration, errors, retries, short-circuits)
+
+### Changed (v1.1.88)
+
+- **instagram.py** — Refactored to use `__getattr__` lazy-loading via `_lazy_modules.py` registry (eliminates ~200-400ms eager import overhead)
+- **client.py** — Integrated CircuitBreaker (per-endpoint via CircuitBreakerRegistry) and HTTP metrics emission
+- **async_client.py** — Same circuit breaker and metrics integration as sync client
+- **anon_client.py** — Integrated ResponseCache for all cacheable anonymous requests
+- **api/public.py** — `get_profile()` and `get_post_by_shortcode()` now use `cached_call()` with 5-minute default TTL
+
+---
+
 ## [1.1.77] — 2026-04-12
 
 ### Added (v1.1.77)

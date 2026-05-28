@@ -5,14 +5,14 @@
 [![PyPI](https://img.shields.io/pypi/v/instaharvest-v2?color=blue)](https://pypi.org/project/instaharvest-v2/)
 [![Python](https://img.shields.io/pypi/pyversions/instaharvest-v2)](https://pypi.org/project/instaharvest-v2/)
 [![License](https://img.shields.io/github/license/mpython77/instaharvest_v2)](https://github.com/mpython77/instaharvest_v2/blob/main/LICENSE)
-![Modules](https://img.shields.io/badge/modules-31+31-green)
+![Modules](https://img.shields.io/badge/modules-33+33-green)
 ![Async](https://img.shields.io/badge/async-full_parity-brightgreen)
 ![Agent Tools](https://img.shields.io/badge/agent_tools-161-orange)
 ![Tests](https://img.shields.io/badge/tests-6242_passed-success)
 ![Coverage](https://img.shields.io/badge/coverage-86%25-brightgreen)
 [![Docs](https://img.shields.io/badge/docs-online-blue?logo=readthedocs)](https://mpython77.github.io/instaharvest_v2/)
 
-> 31 sync + 31 async modules • 315+ functions • 161 agent tools • Pydantic models • AI Agent • CI/CD • 6242 tests passed
+> 33 sync + 33 async modules • 315+ functions • 161 agent tools • Pydantic models • AI Agent • CI/CD • 6242 tests passed
 >
 > 📖 **Documentation:** [mpython77.github.io/instaharvest_v2](https://mpython77.github.io/instaharvest_v2/)
 
@@ -630,13 +630,56 @@ print(user.some_new_field)    # works!
 | 🔐 **Login** | NaCl encrypted password, 2FA, checkpoint handling |
 | 💾 **Session persistence** | Save/load sessions, no re-login needed |
 | 🧩 **Challenge handler** | Auto-resolve email/SMS/consent challenges |
-| ⚡ **Full async parity** | 31 sync + 31 async modules — complete feature match |
+| ⚡ **Full async parity** | 33 sync + 33 async modules — complete feature match |
 | 📦 **Pydantic models** | Typed returns, dict-like access, backward compatible |
 | 🤖 **AI Agent** | 13+ providers, 161 tools, natural language control, memory, webhooks |
 | 📊 **Advanced tools** | Analytics, Export, Growth, Automation, Monitor, Pipeline, Diagnostics |
 | 🔬 **Diagnostics** | 41-method health check (sync+async), CLI support, JSON output |
+| 🏗️ **Core infra** | Circuit breaker, token bucket, response cache, connection pool, metrics, structured logging |
 | ✅ **CI/CD** | GitHub Actions — lint, test (3 Python versions), security, build |
 | 🧪 **6242 tests** | pytest-cov, comprehensive unit & integration tests |
+
+## Core Infrastructure (v1.1.88)
+
+InstaHarvest v2 now includes an enterprise-grade infrastructure layer in the `core/` package with zero external runtime dependencies:
+
+| Component | Purpose |
+| --------- | ------- |
+| **CircuitBreaker** | Per-endpoint three-state failure isolation (CLOSED → OPEN → HALF_OPEN). Used by HttpClient and AsyncHttpClient to prevent cascading failures. |
+| **TokenBucketLimiter** | O(1) rate limiting with burst capacity, replacing the previous sliding-window deque scan. Sync + async variants. |
+| **ResponseCache** | LRU + TTL cache for anonymous API calls (`get_profile`, `get_post_by_shortcode`). Supports stale-while-revalidate. |
+| **ConnectionPool** | curl_cffi session pooling with health tracking and automatic recycling of unhealthy connections. |
+| **Metrics** | Prometheus-compatible counters, gauges, and histograms. In-process collection with no external dependencies. |
+| **StructuredLogger** | JSON log entries with correlation IDs and automatic PII redaction. |
+
+### Lazy-Loading Architecture
+
+The `Instagram` class now lazy-loads all 33 API modules on first access via `__getattr__` and the `_lazy_modules.py` registry. This eliminates ~200-400ms startup time from eager imports and reduces the memory footprint when only a subset of modules is used.
+
+### Metrics & Observability
+
+```python
+from instaharvest_v2.core import metrics
+print(metrics.snapshot())
+print(metrics.export_prometheus())
+```
+
+Every HTTP request emits duration, error, retry, and short-circuit metrics (declared in `_http_metrics.py`). The circuit breaker registry tracks per-endpoint failure rates and state transitions.
+
+### Response Cache (Anonymous API)
+
+```python
+ig = Instagram.anonymous()
+profile = ig.public.get_profile("cristiano")  # fetches and caches (5min TTL)
+profile = ig.public.get_profile("cristiano")  # instant cache hit
+
+stats = ig.public.cache_stats  # {size, hits, misses, hit_rate}
+ig.public.invalidate_cache(prefix="get_profile:")  # force refresh
+```
+
+`get_profile()` and `get_post_by_shortcode()` on the PublicAPI use `cached_call()` with a 5-minute default TTL. The cache supports stale-while-revalidate for near-zero latency on repeated lookups.
+
+---
 
 ## Speed Modes (Async)
 
@@ -690,6 +733,9 @@ instaharvest_v2/
 ├── rate_limiter.py        # Rate limiting
 ├── multi_account.py       # Multi-account manager
 ├── exceptions.py          # Error classes
+├── _lazy_modules.py       # Lazy API module registry
+├── _endpoint_keys.py      # URL normalization for circuit breakers/metrics
+├── _http_metrics.py       # Pre-declared HTTP metric instances
 ├── models/                # Pydantic models
 │   ├── user.py            # User, UserShort, BioParsed
 │   ├── media.py           # Media, Caption
@@ -699,7 +745,14 @@ instaharvest_v2/
 │   ├── location.py        # Location
 │   ├── notification.py    # Notification models
 │   └── public_data.py     # PublicProfile, PublicPost
-├── api/                   # API modules (31 sync + 31 async)
+├── core/                  # Infrastructure layer (v1.1.88)
+│   ├── circuit_breaker.py # Three-state failure isolation
+│   ├── token_bucket.py    # O(1) rate limiting with burst
+│   ├── response_cache.py  # LRU + TTL cache
+│   ├── connection_pool.py # curl_cffi session pooling
+│   ├── metrics.py         # Prometheus-compatible metrics
+│   └── structured_logging.py # JSON logs with correlation IDs
+├── api/                   # API modules (33 sync + 33 async)
 │   ├── users.py           # User profiles
 │   ├── media.py           # Post interactions
 │   ├── feed.py            # User feeds
@@ -709,7 +762,8 @@ instaharvest_v2/
 │   ├── direct.py          # Direct messages
 │   ├── upload.py          # Photo/video upload
 │   ├── download.py        # Media downloads
-│   ├── auth.py            # Login/logout
+│   ├── auth/              # Login, session, encryption
+│   ├── graphql/           # GraphQL v2 (doc_id transport)
 │   ├── analytics.py       # Engagement analytics
 │   ├── export.py          # CSV/JSON export
 │   ├── growth.py          # Smart follow/unfollow
