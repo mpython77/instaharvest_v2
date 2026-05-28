@@ -204,12 +204,32 @@ class SafeExecutor:
         duration = time.time() - start
 
         if thread.is_alive():
-            # Timeout — thread still running
+            # Timeout — forcefully terminate the thread
+            # Use ctypes to raise SystemExit in the running thread
+            try:
+                import ctypes
+                tid = thread.ident
+                if tid is not None:
+                    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                        ctypes.c_ulong(tid),
+                        ctypes.py_object(SystemExit),
+                    )
+                    if res == 0:
+                        logger.warning("Thread termination failed: invalid thread id")
+                    elif res > 1:
+                        # Reset if multiple threads affected (shouldn't happen)
+                        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                            ctypes.c_ulong(tid), None
+                        )
+            except Exception as term_err:
+                logger.warning(f"Thread termination error: {term_err}")
+
+            # Restore stdout/stderr in case the thread didn't clean up
             sys.stdout = old_stdout
             sys.stderr = old_stderr
             return ExecutionResult(
                 success=False,
-                error=f"Timeout: Code did not finish in {self._timeout} seconds",
+                error=f"Timeout: Code did not finish in {self._timeout} seconds. Execution was terminated.",
                 duration=duration,
             )
 
@@ -358,7 +378,7 @@ class SafeExecutor:
 
     @staticmethod
     def _safe_open(path, mode="r", **kwargs):
-        """Restricted open() — only allows read and write in current dir."""
+        """Restricted open() — only allows read/write in current dir with path validation."""
         import os.path
         path_str = str(path)
 
@@ -370,8 +390,37 @@ class SafeExecutor:
         if ".." in path_str:
             raise PermissionError(f"Path traversal is forbidden: {path_str}")
 
-        # Allow read mode always
+        # Resolve the real path and ensure it stays within working directory
+        cwd = os.path.abspath(os.getcwd())
+        resolved = os.path.abspath(os.path.join(cwd, path_str))
+        if not resolved.startswith(cwd + os.sep) and resolved != cwd:
+            raise PermissionError(f"Access outside working directory is forbidden: {path_str}")
+
+        # Block reading sensitive files regardless of mode
+        sensitive_patterns = {
+            ".env", "session.json", ".git", "id_rsa", "id_ed25519",
+            ".ssh", ".aws", ".netrc", ".pgpass", "credentials",
+        }
+        basename = os.path.basename(path_str).lower()
+        for pattern in sensitive_patterns:
+            if pattern in basename or pattern in path_str.lower():
+                raise PermissionError(f"Access to sensitive file is forbidden: {path_str}")
+
+        # Allow read mode for safe file types only
         if mode in ("r", "rb"):
+            safe_read_extensions = {
+                ".csv", ".json", ".jsonl", ".txt", ".md", ".tsv",
+                ".xlsx", ".xls", ".xml", ".yaml", ".yml", ".toml",
+                ".py", ".log", ".html", ".htm",
+                ".jpg", ".jpeg", ".png", ".gif", ".webp",
+                ".mp4", ".webm",
+            }
+            ext = os.path.splitext(path_str)[1].lower()
+            if ext and ext not in safe_read_extensions:
+                raise PermissionError(
+                    f"Reading '{ext}' format is not allowed. "
+                    f"Allowed: {', '.join(sorted(safe_read_extensions))}"
+                )
             return open(path, mode, **kwargs)
 
         # Allow write only for safe extensions

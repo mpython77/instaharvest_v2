@@ -386,6 +386,11 @@ class HttpClient:
                     has_data=bool(data or raw_data),
                 )
 
+                # Proxy — resolve BEFORE rotation context so it's tracked properly
+                proxy_dict = self._proxy_mgr.get_curl_proxy()
+                if proxy_dict:
+                    proxy_url = list(proxy_dict.values())[0]
+
                 # Rotation context for this attempt
                 ctx = self._rotation.on_request_start(
                     method=method, endpoint=url,
@@ -412,11 +417,6 @@ class HttpClient:
                     raw_headers=raw_headers,
 
                 )
-                # Proxy
-                proxy_dict = self._proxy_mgr.get_curl_proxy()
-                if proxy_dict:
-                    proxy_url = list(proxy_dict.values())[0]
-
                 # curl_cffi session
                 curl_sess = self._get_curl_session()
 
@@ -502,6 +502,7 @@ class HttpClient:
 
                             if refreshed:
                                 logger.info("✅ [Session Refresh] Success! Retrying request...")
+                                _login_redirect_count = 0  # Reset counter on successful refresh
                                 continue  # Retry the same request with refreshed session
 
                         # All refresh attempts failed — raise/return error
@@ -541,6 +542,7 @@ class HttpClient:
 
                 # Success — record session and anti-detect
                 self._session_mgr.report_success(sess)
+                self._session_mgr.report_request(sess)
                 self._rotation.on_request_success(ctx, response.status_code, elapsed * 1000)
 
                 return result

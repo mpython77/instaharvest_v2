@@ -45,13 +45,19 @@ class InstaModel(BaseModel):
     @classmethod
     def parse_timestamp(cls, v: Any) -> Any:
         """
-        Parse timestamp.
+        Parse timestamp safely.
+
+        Handles:
+            - None → None
+            - int/float → datetime.fromtimestamp()
+            - str (ISO format) → datetime.fromisoformat()
+            - str (invalid) → None (prevents Pydantic ValidationError)
 
         Args:
-            v: Parameter v
+            v: Raw timestamp value from Instagram API
 
         Returns:
-            Return value of parse_timestamp
+            datetime object or None
         """
         if v is None:
             return None
@@ -59,17 +65,23 @@ class InstaModel(BaseModel):
         if isinstance(v, (int, float)):
             try:
                 return datetime.fromtimestamp(v)
-            except Exception:
+            except (OSError, OverflowError, ValueError):
                 return None
         if isinstance(v, str):
             v_stripped = v.strip()
             if not v_stripped or v_stripped == "invalid":
                 return None
-            # Do NOT parse it here, we just return v to let Pydantic parse valid ISO format
-            # If we know it's not a valid format and the test enforces 'None', we can just return v
-            # Wait, Pydantic 2.x fails hard on invalid strings!
-            # Let's try parsing it with datetime.fromisoformat, if it fails, return None.
-
+            # Try ISO format parsing — if it fails, return None to prevent
+            # Pydantic 2.x ValidationError on malformed strings
+            try:
+                return datetime.fromisoformat(v_stripped)
+            except (ValueError, TypeError):
+                # Try numeric string (epoch timestamp as string)
+                try:
+                    return datetime.fromtimestamp(float(v_stripped))
+                except (ValueError, TypeError, OSError, OverflowError):
+                    return None
+        # Already a datetime or unknown type — pass through
         return v
 
     def to_dict(self) -> Dict[str, Any]:

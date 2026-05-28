@@ -265,7 +265,7 @@ class AsyncHttpClient:
                         raw_headers=raw_headers,
 
                     )
-                    # Proxy
+                    # Proxy — resolve BEFORE building kwargs so rotation context tracks it
                     proxy_dict = self._proxy_mgr.get_curl_proxy()
                     if proxy_dict:
                         proxy_url = list(proxy_dict.values())[0]
@@ -278,7 +278,7 @@ class AsyncHttpClient:
                         "url": url,
                         "headers": headers,
                         "timeout": (CONNECT_TIMEOUT, REQUEST_TIMEOUT),
-                        "allow_redirects": method == "GET",
+                        "allow_redirects": False,  # Handle redirects manually (consistent with sync client)
                         "verify": not bool(proxy_dict),  # Only disable SSL when using proxy
                     }
 
@@ -326,6 +326,7 @@ class AsyncHttpClient:
 
                     # Success
                     self._session_mgr.report_success(sess)
+                    self._session_mgr.report_request(sess)
                     self._rotation.on_request_success(ctx, response.status_code, elapsed * 1000)
                     self._rate_limiter.on_success()
 

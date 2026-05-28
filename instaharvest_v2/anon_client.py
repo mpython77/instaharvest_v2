@@ -288,7 +288,16 @@ class AnonClient:
                 response.raise_for_status()
 
                 if parse_json:
-                    return response.json()
+                    try:
+                        return response.json()
+                    except (json.JSONDecodeError, ValueError) as json_err:
+                        # Instagram sometimes returns 200 with HTML (login page) instead of JSON
+                        body_preview = response.text[:200] if response.text else ""
+                        if "login" in body_preview.lower() or "<!DOCTYPE" in body_preview:
+                            logger.debug(f"[Anon] Got HTML instead of JSON on {strategy} (login redirect)")
+                            raise StrategyFailed(f"Got HTML instead of JSON (login redirect): {strategy}")
+                        logger.warning(f"[Anon] JSON decode failed on {strategy}: {json_err}")
+                        raise StrategyFailed(f"JSON decode error on {strategy}: {json_err}")
                 return response.text
 
             except StrategyFailed:

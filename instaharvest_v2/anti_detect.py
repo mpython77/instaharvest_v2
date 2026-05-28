@@ -38,10 +38,16 @@ from .config import (
 )
 
 
+_debug_logger_cache = None
+
+
 def _dbg():
-    """Lazy import to avoid circular dependency."""
-    from .log_config import get_debug_logger
-    return get_debug_logger()
+    """Lazy import with module-level cache to avoid repeated import lookups."""
+    global _debug_logger_cache
+    if _debug_logger_cache is None:
+        from .log_config import get_debug_logger
+        _debug_logger_cache = get_debug_logger()
+    return _debug_logger_cache
 
 
 @dataclass
@@ -158,6 +164,7 @@ class AntiDetect:
         self._identity_uses: int = 0
         self._identity_max_uses: int = random.randint(20, 80)
         self._identity_created_at: float = 0
+        self._identity_max_age: float = random.uniform(180, 600)  # Fixed at creation
 
         # Identity history (to avoid repetition)
         self._used_profiles: List[int] = []
@@ -187,7 +194,7 @@ class AntiDetect:
                 force_new
                 or self._current_identity is None
                 or self._identity_uses >= self._identity_max_uses
-                or (time.time() - self._identity_created_at > random.uniform(180, 600))
+                or (time.time() - self._identity_created_at > self._identity_max_age)
             )
 
             if should_rotate:
@@ -197,10 +204,13 @@ class AntiDetect:
                 # New max uses
                 if self._escalation_level >= 2:
                     self._identity_max_uses = random.randint(5, 15)
+                    self._identity_max_age = random.uniform(60, 120)
                 elif self._escalation_level >= 1:
                     self._identity_max_uses = random.randint(10, 30)
+                    self._identity_max_age = random.uniform(120, 300)
                 else:
                     self._identity_max_uses = random.randint(20, 80)
+                    self._identity_max_age = random.uniform(180, 600)
 
             self._identity_uses += 1
             return self._current_identity
@@ -280,18 +290,22 @@ class AntiDetect:
 
     # ─── ERROR HANDLING — INSTANT ROTATION ──────────────────
 
-    def on_error(self, error_type: str = "unknown") -> None:
+    def on_error(self, error_type: str = "unknown") -> Dict:
         """
         Called on error.
         Instantly switches identity and raises protection level.
         Thread-safe.
 
-        error_type:
-            "rate_limit"  — 429 response (serious)
-            "challenge"   — captcha/challenge (very serious)
-            "login"       — session dead
-            "network"     — network error
-            "unknown"     — other error
+        Args:
+            error_type: Type of error that occurred.
+                "rate_limit"  — 429 response (serious)
+                "challenge"   — captcha/challenge (very serious)
+                "login"       — session dead
+                "network"     — network error
+                "unknown"     — other error
+
+        Returns:
+            Dict with rotation summary (old/new browser, escalation change, etc.)
         """
         with self._lock:
             self._error_count += 1
