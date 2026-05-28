@@ -3,10 +3,18 @@ Instagram - Main Class
 =======================
 Main class that unifies all API modules.
 Simple and powerful interface.
+
+Architecture:
+    Core components (HttpClient, SessionManager, ProxyManager, etc.) are
+    instantiated eagerly in __init__ because they are foundational.
+
+    The 30+ API modules (users, media, feed, ...) are lazy-loaded via
+    __getattr__ — they are imported and constructed only on first access.
+    See _lazy_modules.py for the registry.
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from .client import HttpClient
 from .session_manager import SessionManager
@@ -22,39 +30,17 @@ from .plugin import Plugin, PluginManager
 from .proxy_health import ProxyHealthChecker
 from .story_composer import StoryComposer
 from .anon_client import AnonClient
-from .api.users import UsersAPI
-from .api.media import MediaAPI
-from .api.feed import FeedAPI
-from .api.search import SearchAPI
-from .api.hashtags import HashtagsAPI
-from .api.friendships import FriendshipsAPI
-from .api.direct import DirectAPI
-from .api.stories import StoriesAPI
-from .api.insights import InsightsAPI
-from .api.account import AccountAPI
-from .api.notifications import NotificationsAPI
-from .api.graphql import GraphQLAPI
-from .api.upload import UploadAPI
-from .api.location import LocationAPI
-from .api.collections import CollectionsAPI
-from .api.download import DownloadAPI
-from .api.auth import AuthAPI
-from .api.discover import DiscoverAPI
-from .api.public import PublicAPI
-from .api.export import ExportAPI, ExportFilter
-from .api.analytics import AnalyticsAPI
-from .api.scheduler import SchedulerAPI, SchedulerJob
-from .api.growth import GrowthAPI, GrowthFilters, GrowthLimits
-from .api.automation import AutomationAPI, AutomationLimits, TemplateEngine
-from .api.monitor import MonitorAPI, AccountWatcher
-from .api.bulk_download import BulkDownloadAPI
-from .api.hashtag_research import HashtagResearchAPI
-from .api.pipeline import PipelineAPI
-from .api.ai_suggest import AISuggestAPI
-from .api.audience import AudienceAPI
-from .api.comment_manager import CommentManagerAPI
-from .api.ab_test import ABTestAPI
-from .api.public_data import PublicDataAPI
+from ._lazy_modules import LAZY_API_MODULES, LAZY_MODULE_NAMES
+
+# Re-exports kept for backward compatibility (referenced by callers as
+# `from instaharvest_v2.instagram import ExportFilter` etc.). They are
+# imported lazily through __getattr__ at the module level if needed.
+# Direct importers should switch to `from instaharvest_v2 import ...`.
+from .api.export import ExportFilter
+from .api.scheduler import SchedulerJob
+from .api.growth import GrowthFilters, GrowthLimits
+from .api.automation import AutomationLimits, TemplateEngine
+from .api.monitor import AccountWatcher
 
 logger = logging.getLogger("instaharvest_v2")
 
@@ -197,54 +183,9 @@ class Instagram:
             event_emitter=self._events,
         )
 
-        # API modules (authenticated)
-        self.users = UsersAPI(self._client)
-        self.media = MediaAPI(self._client)
-        self.graphql = GraphQLAPI(self._client)  # GraphQL first (needed by feed)
-        self.feed = FeedAPI(self._client, graphql=self.graphql)
-        self.search = SearchAPI(self._client)
-        self.hashtags = HashtagsAPI(self._client)
-        self.friendships = FriendshipsAPI(self._client)
-        self.direct = DirectAPI(self._client)
-        self.stories = StoriesAPI(self._client)
-        self.insights = InsightsAPI(self._client)
-        self.account = AccountAPI(self._client)
-        self.notifications = NotificationsAPI(self._client)
-        self.upload = UploadAPI(self._client)
-        self.location = LocationAPI(self._client)
-        self.collections = CollectionsAPI(self._client)
-        self.download = DownloadAPI(self._client)
-        self.auth = AuthAPI(self._client)
-        self.discover = DiscoverAPI(self._client)
-
-        # High-level API modules (composing low-level APIs)
-        self.export = ExportAPI(
-            self._client, self.users, self.friendships, self.media, self.hashtags
-        )
-        self.analytics = AnalyticsAPI(
-            self._client, self.users, self.media, self.feed
-        )
-        self.scheduler = SchedulerAPI(self.upload, self.stories)
-        self.growth = GrowthAPI(self._client, self.users, self.friendships)
-        self.automation = AutomationAPI(
-            self._client, self.direct, self.media, self.friendships, self.stories
-        )
-        self.monitor = MonitorAPI(self._client, self.users, self.feed, self.stories)
-        self.bulk_download = BulkDownloadAPI(
-            self._client, self.download, self.users, self.stories
-        )
-        self.hashtag_research = HashtagResearchAPI(self._client, self.hashtags)
-        self.pipeline = PipelineAPI(
-            self._client, self.users, self.friendships, self.media
-        )
-        self.ai_suggest = AISuggestAPI(
-            self._client, self.users, self.hashtags, getattr(self, 'hashtag_research', None)
-        )
-        self.audience = AudienceAPI(self._client, self.users, self.friendships)
-        self.comment_manager = CommentManagerAPI(self._client, self.media)
-        self.ab_test = ABTestAPI(
-            self._client, self.upload, self.media, self.analytics
-        )
+        # API modules are lazy-loaded via __getattr__ — see _lazy_modules.py.
+        # Only the underlying _client and _anon_client are eager because
+        # other components depend on them.
 
         # Anonymous public API (no login needed)
         # If user has a session, pass cookies to AnonClient for better data access
@@ -268,10 +209,6 @@ class Instagram:
             proxy_manager=self._proxy_mgr,
             cookies=anon_cookies,
         )
-        self.public = PublicAPI(self._anon_client)
-
-        # Public Data analytics (Supermetrics-style, no login needed)
-        self.public_data = PublicDataAPI(self.public)
 
         # Dashboard + Plugin manager
         self.dashboard = Dashboard(
@@ -282,6 +219,56 @@ class Instagram:
         )
         self._plugin_mgr = PluginManager(event_emitter=self._events)
         self._proxy_health: Optional[ProxyHealthChecker] = None
+
+    # ─── LAZY API MODULE LOADING ─────────────────────────────
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Lazy attribute lookup for API modules.
+
+        Called by Python only when normal lookup fails — i.e., for any
+        attribute not yet present in self.__dict__ or on the class.
+
+        For names listed in LAZY_API_MODULES we instantiate the module
+        on demand, cache it in self.__dict__ (so the next lookup hits
+        the fast path and never calls __getattr__ again), and return it.
+
+        Inter-module dependencies (e.g., feed -> graphql) resolve naturally:
+        the factory accesses self.graphql, which triggers another
+        __getattr__ call if needed.
+        """
+        # Avoid recursion during early construction (before _client is set)
+        if name.startswith("_"):
+            raise AttributeError(
+                f"{type(self).__name__!r} has no attribute {name!r}"
+            )
+
+        factory = LAZY_API_MODULES.get(name)
+        if factory is None:
+            raise AttributeError(
+                f"{type(self).__name__!r} has no attribute {name!r}"
+            )
+
+        try:
+            module = factory(self)
+        except Exception as exc:
+            # Wrap the original error so the user sees which module failed
+            raise AttributeError(
+                f"Failed to load API module {name!r}: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        # Cache on the instance — future accesses bypass __getattr__
+        self.__dict__[name] = module
+        return module
+
+    def __dir__(self) -> List[str]:
+        """Include lazy-loaded API modules in dir() output."""
+        return sorted(set(super().__dir__()) | set(LAZY_MODULE_NAMES))
+
+    @property
+    def loaded_modules(self) -> List[str]:
+        """Return names of API modules currently loaded (already accessed)."""
+        return [name for name in LAZY_MODULE_NAMES if name in self.__dict__]
 
     def _build_refresh_callback(self):
         """
@@ -479,8 +466,10 @@ class Instagram:
             profile_strategies=profile_strategies,
             posts_strategies=posts_strategies,
         )
-        instance.public = PublicAPI(instance._anon_client)
-        instance.public_data = PublicDataAPI(instance.public)
+        # Evict cached public/public_data so the lazy factories rebuild
+        # them against the new _anon_client on next access.
+        instance.__dict__.pop("public", None)
+        instance.__dict__.pop("public_data", None)
         return instance
 
     @classmethod

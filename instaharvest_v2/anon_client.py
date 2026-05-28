@@ -26,6 +26,7 @@ from curl_cffi import requests as curl_requests
 
 from .anti_detect import AntiDetect
 from .proxy_manager import ProxyManager
+from .core import ResponseCache, cache_key
 from . import parsers as _parsers
 from .strategy import (
     ProfileStrategy,
@@ -118,17 +119,25 @@ class AnonClient:
         profile_strategies=None,
         posts_strategies=None,
         cookies: Optional[Dict[str, str]] = None,
+        cache: Optional[ResponseCache] = None,
+        cache_ttl: float = 300.0,
+        cache_size: int = 1000,
     ):
         """
         Init.
 
         Args:
-            anti_detect: Parameter anti_detect
-            proxy_manager: Parameter proxy_manager
-            unlimited: Parameter unlimited
-            profile_strategies: Parameter profile_strategies
-            posts_strategies: Parameter posts_strategies
-            cookies: Parameter cookies
+            anti_detect: Shared AntiDetect instance.
+            proxy_manager: Optional ProxyManager.
+            unlimited: Disable rate limiting and human delays.
+            profile_strategies: Override profile strategy chain.
+            posts_strategies: Override posts strategy chain.
+            cookies: Optional cookies dict (e.g., to use authenticated session).
+            cache: Custom ResponseCache. If None, a default LRU+TTL cache
+                is created with `cache_size` entries and `cache_ttl` seconds.
+                Pass `cache=False` to disable caching entirely.
+            cache_ttl: Default cache TTL when no explicit `cache` is provided.
+            cache_size: Max cache entries when no explicit `cache` is provided.
         """
         self._anti_detect = anti_detect or AntiDetect()
         self._proxy_mgr = proxy_manager
@@ -141,6 +150,80 @@ class AnonClient:
         # Configurable strategy chains
         self._profile_strategies = parse_profile_strategies(profile_strategies)
         self._posts_strategies = parse_posts_strategies(posts_strategies)
+
+        # Response cache for high-level GET methods (profile, posts, ...)
+        # Pass cache=False to disable. None -> create default.
+        if cache is False:
+            self._cache: Optional[ResponseCache] = None
+        elif cache is None:
+            self._cache = ResponseCache(
+                maxsize=cache_size,
+                default_ttl=cache_ttl,
+            )
+        else:
+            self._cache = cache
+
+    # ═══════════════════════════════════════════════════════════
+    # RESPONSE CACHE API (used by PublicAPI methods)
+    # ═══════════════════════════════════════════════════════════
+
+    @property
+    def cache(self) -> Optional[ResponseCache]:
+        """Access the underlying response cache (None if disabled)."""
+        return self._cache
+
+    def cached_call(
+        self,
+        key_parts: tuple,
+        fetch_fn,
+        ttl: Optional[float] = None,
+    ):
+        """
+        Memoized fetch helper for read-only public API methods.
+
+        Builds a deterministic cache key from `key_parts`, returns the
+        cached value on hit, or invokes `fetch_fn()` on miss and caches
+        the (non-None) result.
+
+        Args:
+            key_parts: Heterogeneous tuple identifying the call
+                (e.g., ("get_profile", "cristiano")).
+            fetch_fn: Zero-argument callable that produces the value.
+            ttl: Optional override for this entry.
+
+        Returns:
+            Whatever fetch_fn returned (cached on subsequent calls).
+        """
+        if self._cache is None:
+            return fetch_fn()
+        key = cache_key(*key_parts)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        value = fetch_fn()
+        # Don't cache None / empty results — let the next call retry
+        if value:
+            self._cache.set(key, value, ttl=ttl)
+        return value
+
+    def invalidate_cache(self, prefix: Optional[str] = None) -> int:
+        """
+        Drop cached entries.
+
+        Args:
+            prefix: If provided, drop only keys starting with this prefix
+                (e.g., "get_profile:cristiano"). If None, clear everything.
+
+        Returns:
+            Number of entries removed.
+        """
+        if self._cache is None:
+            return 0
+        if prefix is None:
+            removed = len(self._cache)
+            self._cache.clear()
+            return removed
+        return self._cache.invalidate_prefix(prefix)
 
     # ═══════════════════════════════════════════════════════════
     # CORE HTTP — anonymous requests via curl_cffi
