@@ -53,6 +53,14 @@ from .exceptions import (
     PrivateAccountError,
 )
 from .smart_rotation import SmartRotationCoordinator, RotationContext, _mask_proxy
+from .core import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerRegistry,
+    CircuitOpenError,
+)
+from ._endpoint_keys import endpoint_key
+from . import _http_metrics as _metrics
 
 logger = logging.getLogger("instaharvest_v2")
 
@@ -103,6 +111,27 @@ class HttpClient:
 
         # Smart rotation coordinator
         self._rotation = SmartRotationCoordinator(anti_detect, proxy_manager)
+
+        # Per-endpoint circuit breakers — fail fast on a flaky endpoint
+        # without affecting healthy ones.
+        # Excluded exceptions are valid business outcomes that must NOT
+        # count as endpoint failures.
+        self._breakers = CircuitBreakerRegistry(
+            default_config=CircuitBreakerConfig(
+                failure_threshold=5,
+                success_threshold=2,
+                recovery_timeout=60.0,
+                half_open_max_calls=2,
+                excluded_exceptions=(
+                    NotFoundError,
+                    PrivateAccountError,
+                    LoginRequired,
+                    ChallengeRequired,
+                    CheckpointRequired,
+                    ConsentRequired,
+                ),
+            ),
+        )
 
         # Warm-up tracking: set of ds_user_id that have been warmed up
         self._warmed_sessions: set = set()
@@ -362,9 +391,38 @@ class HttpClient:
         if sess.ds_user_id not in self._warmed_sessions:
             self._warm_up_session(sess)
 
+        # Per-endpoint circuit breaker. Fail-fast if recent failures have
+        # opened the circuit for this endpoint pattern.
+        breaker = self._breakers.get_or_create(endpoint_key(url))
+        ep_key = endpoint_key(url)
+        request_started_at = time.time()
+
+        def _record_terminal_error(exc: Exception) -> None:
+            """Record a request that failed without further retries."""
+            _metrics.record_request(
+                method=method,
+                endpoint=ep_key,
+                outcome="error",
+                duration_seconds=time.time() - request_started_at,
+                error_type=type(exc).__name__,
+            )
+
         for attempt in range(self._retry.max_retries + 1):
             proxy_url = None
             start_time = time.time()
+
+            try:
+                # Check circuit before any work — fail fast if open.
+                breaker._before_call()
+            except CircuitOpenError as cb_err:
+                _metrics.record_short_circuit(ep_key)
+                logger.warning(
+                    "Circuit OPEN for %s — failing fast (no retry): %s",
+                    ep_key, cb_err,
+                )
+                raise NetworkError(
+                    f"Circuit breaker open for {ep_key}: {cb_err}"
+                ) from cb_err
 
             try:
                 # Human-like delay
@@ -539,13 +597,21 @@ class HttpClient:
                 # Handle response
                 result = self._response_handler.handle(response, sess)
 
-                # Success — record session and anti-detect
+                # Success — record session, anti-detect, breaker, metrics
                 self._session_mgr.report_success(sess)
                 self._rotation.on_request_success(ctx, response.status_code, elapsed * 1000)
+                breaker._on_success()
+                _metrics.record_request(
+                    method=method,
+                    endpoint=ep_key,
+                    outcome="success",
+                    duration_seconds=elapsed,
+                )
 
                 return result
 
             except ChallengeRequired as e:
+                breaker._on_failure(e)
                 # Rich structured log via coordinator
                 action = self._rotation.on_request_error(
                     ctx, e, status_code=getattr(e, 'status_code', 0),
@@ -575,17 +641,21 @@ class HttpClient:
 
                 # Not resolved — rotate TLS and raise
                 self._rotate_curl_session()
+                _record_terminal_error(e)
                 raise
 
             except CheckpointRequired as e:
+                breaker._on_failure(e)
                 self._rotation.on_request_error(
                     ctx, e, status_code=getattr(e, 'status_code', 0),
                     rotate_identity=True, rotate_tls=True,
                 )
                 self._rotate_curl_session()
+                _record_terminal_error(e)
                 raise
 
             except LoginRequired as e:
+                breaker._on_failure(e)
                 self._rotation.on_request_error(
                     ctx, e, status_code=getattr(e, 'status_code', 0),
                     rotate_identity=True,
@@ -623,22 +693,28 @@ class HttpClient:
                         logger.warning(f"🔑 Session refresh failed: {refresh_err}")
                     finally:
                         self._is_refreshing = False
+                _record_terminal_error(e)
                 raise
 
             except (NotFoundError, PrivateAccountError) as e:
-                # Valid response — no rotation
+                # Valid response — no rotation, no breaker (excluded by config)
+                breaker._on_failure(e)  # excluded -> ignored, but safe to call
                 self._rotation.on_request_error(ctx, e, rotate_proxy=False, rotate_identity=False)
+                _record_terminal_error(e)
                 raise
 
             except (ConsentRequired, InstagramError) as e:
+                breaker._on_failure(e)
                 self._rotation.on_request_error(
                     ctx, e, status_code=getattr(e, 'status_code', 0),
                     rotate_identity=True, rotate_tls=True,
                 )
                 self._rotate_curl_session()
+                _record_terminal_error(e)
                 raise
 
             except RateLimitError as e:
+                breaker._on_failure(e)
                 last_exception = e
                 self._rotation.on_request_error(
                     ctx, e, status_code=429,
@@ -652,6 +728,7 @@ class HttpClient:
                 self._rotate_curl_session()
 
             except NetworkError as e:
+                breaker._on_failure(e)
                 last_exception = e
                 self._rotation.on_request_error(
                     ctx, e, rotate_proxy=True, rotate_tls=True,
@@ -661,6 +738,7 @@ class HttpClient:
                 self._rotate_curl_session()
 
             except Exception as e:
+                breaker._on_failure(e)
                 err_str = str(e).lower()
                 if "redirect" in err_str or "(47)" in err_str:
                     logger.warning(
@@ -679,11 +757,14 @@ class HttpClient:
 
             # Only retry if the exception is retryable
             if last_exception and not self._retry.should_retry(last_exception):
+                _record_terminal_error(last_exception)
                 raise last_exception
 
             # Exponential backoff with jitter
             if attempt < self._retry.max_retries:
                 backoff = self._retry.calculate_delay(attempt)
+                reason = type(last_exception).__name__ if last_exception else "unknown"
+                _metrics.record_retry(endpoint=ep_key, reason=reason)
                 logger.debug(f"Backoff: {backoff:.1f}s (attempt {attempt + 1})")
                 # Debug: log retry
                 dbg = get_debug_logger()
@@ -691,7 +772,7 @@ class HttpClient:
                     attempt=attempt + 1,
                     max_attempts=self._retry.max_retries + 1,
                     backoff_seconds=backoff,
-                    reason=type(last_exception).__name__ if last_exception else "unknown",
+                    reason=reason,
                     endpoint=url,
                 )
                 if self._events:
@@ -699,7 +780,9 @@ class HttpClient:
                 time.sleep(backoff)
 
         # All attempts exhausted
-        raise last_exception or NetworkError("All attempts failed")
+        terminal_exc = last_exception or NetworkError("All attempts failed")
+        _record_terminal_error(terminal_exc)
+        raise terminal_exc
 
     # _handle_response delegated to ResponseHandler (response_handler.py)
 
@@ -713,6 +796,15 @@ class HttpClient:
         if session:
             return session.jazoest
         return ""
+
+    @property
+    def circuit_stats(self) -> Dict[str, Any]:
+        """Snapshot of every endpoint circuit breaker."""
+        return self._breakers.stats()
+
+    def reset_circuits(self) -> None:
+        """Force-close every endpoint circuit (e.g., after manual recovery)."""
+        self._breakers.reset_all()
 
     def close(self) -> None:
         """Clean up resources."""

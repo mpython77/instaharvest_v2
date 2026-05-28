@@ -41,6 +41,33 @@ class PublicAPI:
         self._client = anon_client
 
     # ═══════════════════════════════════════════════════════════
+    # CACHE CONTROL
+    # ═══════════════════════════════════════════════════════════
+
+    @property
+    def cache_stats(self) -> Optional[Dict[str, Any]]:
+        """
+        Snapshot of the response cache (size, hits, misses, hit_rate, ...).
+        Returns None if caching is disabled.
+        """
+        cache = self._client.cache
+        return cache.stats if cache is not None else None
+
+    def invalidate_cache(self, prefix: Optional[str] = None) -> int:
+        """
+        Drop cached entries.
+
+        Args:
+            prefix: If given, only drop keys starting with this prefix
+                (e.g., "get_profile:cristiano" to refresh one user).
+                If None, clear the whole cache.
+
+        Returns:
+            Number of entries removed.
+        """
+        return self._client.invalidate_cache(prefix=prefix)
+
+    # ═══════════════════════════════════════════════════════════
     # PROFILE
     # ═══════════════════════════════════════════════════════════
 
@@ -49,6 +76,8 @@ class PublicAPI:
         Get public profile (anonymous — no login needed).
 
         Uses configurable fallback chain. Default: Web API → GraphQL → HTML parse.
+        Result is cached (default TTL 5 min) — repeated calls return immediately.
+        Use `ig.public.invalidate_cache(prefix="get_profile:")` to refresh.
 
         Args:
             username: Instagram username (without @)
@@ -57,7 +86,10 @@ class PublicAPI:
             Profile data dict or None if not found/private
         """
         username = username.lstrip("@").strip().lower()
-        return self._client.get_profile_chain(username)
+        return self._client.cached_call(
+            ("get_profile", username),
+            lambda: self._client.get_profile_chain(username),
+        )
 
     def get_user_id(self, username: str) -> Optional[int]:
         """
@@ -125,6 +157,7 @@ class PublicAPI:
         Get post data by shortcode (anonymous).
 
         Uses fallback chain: Embed → GraphQL → Web API.
+        Result is cached (default TTL 5 min) — repeated calls return immediately.
 
         Args:
             shortcode: Post shortcode (e.g. "ABC123" from instagram.com/p/ABC123/)
@@ -132,7 +165,10 @@ class PublicAPI:
         Returns:
             Post data dict or None
         """
-        return self._client.get_post_chain(shortcode)
+        return self._client.cached_call(
+            ("get_post_by_shortcode", shortcode),
+            lambda: self._client.get_post_chain(shortcode),
+        )
 
     def get_post_by_url(self, url: str) -> Optional[Dict[str, Any]]:
         """

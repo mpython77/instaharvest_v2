@@ -28,6 +28,11 @@ htmlcov/
 _*.json
 _*.txt
 _*.py
+
+# Internal infrastructure modules (kept tracked despite _*.py rule)
+!instaharvest_v2/_endpoint_keys.py
+!instaharvest_v2/_http_metrics.py
+!instaharvest_v2/_lazy_modules.py
 !__init__.py
 !__main__.py
 *.log

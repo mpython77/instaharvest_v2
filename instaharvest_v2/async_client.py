@@ -45,6 +45,13 @@ from .exceptions import (
 # (AsyncChallengeHandler already imported above)
 from .smart_rotation import SmartRotationCoordinator, RotationContext, _mask_proxy
 from .fb_dtsg import AsyncFbDtsgProvider
+from .core import (
+    CircuitBreakerConfig,
+    CircuitBreakerRegistry,
+    CircuitOpenError,
+)
+from ._endpoint_keys import endpoint_key
+from . import _http_metrics as _metrics
 
 LATEST_SERVER_REVISION = "1034642761"
 
@@ -105,6 +112,24 @@ class AsyncHttpClient:
 
         # Smart rotation coordinator
         self._rotation = SmartRotationCoordinator(anti_detect, proxy_manager)
+
+        # Per-endpoint circuit breakers — same config as sync client.
+        self._breakers = CircuitBreakerRegistry(
+            default_config=CircuitBreakerConfig(
+                failure_threshold=5,
+                success_threshold=2,
+                recovery_timeout=60.0,
+                half_open_max_calls=2,
+                excluded_exceptions=(
+                    NotFoundError,
+                    PrivateAccountError,
+                    LoginRequired,
+                    ChallengeRequired,
+                    CheckpointRequired,
+                    ConsentRequired,
+                ),
+            ),
+        )
 
     def _get_async_session(self) -> AsyncSession:
         """Get or create curl_cffi AsyncSession with Chrome 142 TLS."""
@@ -204,10 +229,38 @@ class AsyncHttpClient:
 
         last_exception = None
 
+        # Per-endpoint circuit breaker
+        breaker = self._breakers.get_or_create(endpoint_key(url))
+        ep_key = endpoint_key(url)
+        request_started_at = time.time()
+
+        def _record_terminal_error(exc: Exception) -> None:
+            """Record a request that failed without further retries."""
+            _metrics.record_request(
+                method=method,
+                endpoint=ep_key,
+                outcome="error",
+                duration_seconds=time.time() - request_started_at,
+                error_type=type(exc).__name__,
+            )
+
         try:
             for attempt in range(self._retry.max_retries + 1):
                 proxy_url = None
                 start_time = time.time()
+
+                # Fail fast if circuit is open for this endpoint
+                try:
+                    breaker._before_call()
+                except CircuitOpenError as cb_err:
+                    _metrics.record_short_circuit(ep_key)
+                    logger.warning(
+                        "Circuit OPEN for %s — failing fast: %s",
+                        ep_key, cb_err,
+                    )
+                    raise NetworkError(
+                        f"Circuit breaker open for {ep_key}: {cb_err}"
+                    ) from cb_err
 
                 try:
                     # Anti-detect delay only on retries (first request uses rate limiter delay)
@@ -328,10 +381,18 @@ class AsyncHttpClient:
                     self._session_mgr.report_success(sess)
                     self._rotation.on_request_success(ctx, response.status_code, elapsed * 1000)
                     self._rate_limiter.on_success()
+                    breaker._on_success()
+                    _metrics.record_request(
+                        method=method,
+                        endpoint=ep_key,
+                        outcome="success",
+                        duration_seconds=elapsed,
+                    )
 
                     return result
 
                 except ChallengeRequired as e:
+                    breaker._on_failure(e)
                     # Rich structured log via coordinator
                     self._rotation.on_request_error(
                         ctx, e, status_code=getattr(e, 'status_code', 0),
@@ -362,18 +423,22 @@ class AsyncHttpClient:
                     # Not resolved
                     self._rate_limiter.on_error("challenge")
                     await self._rotate_async_session()
+                    _record_terminal_error(e)
                     raise
 
                 except CheckpointRequired as e:
+                    breaker._on_failure(e)
                     self._rotation.on_request_error(
                         ctx, e, status_code=getattr(e, 'status_code', 0),
                         rotate_identity=True, rotate_tls=True,
                     )
                     self._rate_limiter.on_error("checkpoint")
                     await self._rotate_async_session()
+                    _record_terminal_error(e)
                     raise
 
                 except LoginRequired as e:
+                    breaker._on_failure(e)
                     self._rotation.on_request_error(
                         ctx, e, status_code=getattr(e, 'status_code', 0),
                         rotate_identity=True,
@@ -399,22 +464,28 @@ class AsyncHttpClient:
                             logger.warning(f"🔑 Session refresh failed: {refresh_err}")
                         finally:
                             self._is_refreshing = False
+                    _record_terminal_error(e)
                     raise
 
                 except (NotFoundError, PrivateAccountError) as e:
+                    breaker._on_failure(e)  # excluded -> ignored
                     self._rotation.on_request_error(ctx, e, rotate_proxy=False, rotate_identity=False)
+                    _record_terminal_error(e)
                     raise
 
                 except (ConsentRequired, InstagramError) as e:
+                    breaker._on_failure(e)
                     self._rotation.on_request_error(
                         ctx, e, status_code=getattr(e, 'status_code', 0),
                         rotate_identity=True, rotate_tls=True,
                     )
                     self._rate_limiter.on_error("instagram")
                     await self._rotate_async_session()
+                    _record_terminal_error(e)
                     raise
 
                 except RateLimitError as e:
+                    breaker._on_failure(e)
                     last_exception = e
                     self._rotation.on_request_error(
                         ctx, e, status_code=429,
@@ -427,6 +498,7 @@ class AsyncHttpClient:
                     await self._rotate_async_session()
 
                 except NetworkError as e:
+                    breaker._on_failure(e)
                     last_exception = e
                     self._rotation.on_request_error(
                         ctx, e, rotate_proxy=True, rotate_tls=True,
@@ -435,6 +507,7 @@ class AsyncHttpClient:
                     await self._rotate_async_session()
 
                 except Exception as e:
+                    breaker._on_failure(e)
                     err_str = str(e).lower()
                     if "redirect" in err_str or "(47)" in err_str:
                         logger.warning(
@@ -453,11 +526,14 @@ class AsyncHttpClient:
 
                 # Only retry if the exception is retryable
                 if last_exception and not self._retry.should_retry(last_exception):
+                    _record_terminal_error(last_exception)
                     raise last_exception
 
                 # Exponential backoff (async) — using RetryConfig
                 if attempt < self._retry.max_retries:
                     backoff = self._retry.calculate_delay(attempt)
+                    reason = type(last_exception).__name__ if last_exception else "unknown"
+                    _metrics.record_retry(endpoint=ep_key, reason=reason)
                     logger.debug(f"Backoff: {backoff:.1f}s (attempt {attempt + 1})")
                     # Debug: log retry
                     dbg = get_debug_logger()
@@ -465,7 +541,7 @@ class AsyncHttpClient:
                         attempt=attempt + 1,
                         max_attempts=self._retry.max_retries + 1,
                         backoff_seconds=backoff,
-                        reason=type(last_exception).__name__ if last_exception else "unknown",
+                        reason=reason,
                         endpoint=url,
                     )
                     if self._events:
@@ -473,7 +549,9 @@ class AsyncHttpClient:
                         self._events.emit(EventType.RETRY, endpoint=url, attempt=attempt + 1, extra={"backoff": backoff})
                     await asyncio.sleep(backoff)
 
-            raise last_exception or NetworkError("All attempts failed")
+            terminal_exc = last_exception or NetworkError("All attempts failed")
+            _record_terminal_error(terminal_exc)
+            raise terminal_exc
 
         finally:
             # Always release semaphore
@@ -498,6 +576,15 @@ class AsyncHttpClient:
     def rate_limiter(self) -> AsyncRateLimiter:
         """Access rate limiter for stats and configuration."""
         return self._rate_limiter
+
+    @property
+    def circuit_stats(self) -> Dict[str, Any]:
+        """Snapshot of every endpoint circuit breaker."""
+        return self._breakers.stats()
+
+    def reset_circuits(self) -> None:
+        """Force-close every endpoint circuit (e.g., after manual recovery)."""
+        self._breakers.reset_all()
 
     async def close(self) -> None:
         """Clean up async resources."""
