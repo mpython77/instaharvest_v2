@@ -636,7 +636,7 @@ print(user.some_new_field)    # works!
 | 📊 **Advanced tools** | Analytics, Export, Growth, Automation, Monitor, Pipeline, Diagnostics |
 | 🔬 **Diagnostics** | 41-method health check (sync+async), CLI support, JSON output |
 | 🏗️ **Core infra** | Circuit breaker, token bucket, response cache, connection pool, metrics, structured logging |
-| ✅ **CI/CD** | GitHub Actions — lint, test (3 Python versions), security, build |
+| ✅ **CI/CD** | GitHub Actions — lint, test (4 Python versions), security, build |
 | 🧪 **6242 tests** | pytest-cov, comprehensive unit & integration tests |
 
 ## Core Infrastructure (v1.1.88)
@@ -814,7 +814,7 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 | Job | Description |
 | ----- | ------------- |
 | **Lint** | flake8 + mypy |
-| **Test** | Python 3.10, 3.11, 3.12 + coverage |
+| **Test** | Python 3.10, 3.11, 3.12, 3.13 + coverage |
 | **Security** | bandit + safety |
 | **Build** | Package + twine check |
 
