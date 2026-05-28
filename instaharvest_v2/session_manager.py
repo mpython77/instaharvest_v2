@@ -130,6 +130,8 @@ class SessionInfo:
     # Auto-save tracking
     _requests_since_save: int = field(default=0, repr=False)
     _cookie_updates: int = field(default=0, repr=False)
+    _cached_cookie_string: Optional[str] = field(default=None, repr=False)
+    _cookie_string_dirty: bool = field(default=True, repr=False)
 
     def _init_fingerprint(self) -> None:
         """
@@ -185,13 +187,18 @@ class SessionInfo:
     @property
     def cookie_string(self) -> str:
         """
-        Cookies as string — BROWSER 1:1 ORDER.
+        Cookies as string — BROWSER 1:1 ORDER (cached).
 
         Instagram validates cookie ordering!
         Order captured from real browser via mitmproxy:
         ig_did → mid → ig_nrcb → datr → dpr → ds_user_id →
         ps_l → ps_n → csrftoken → sessionid → rur → wd
+
+        String is cached and only rebuilt when cookies are updated.
         """
+        if self._cached_cookie_string is not None and not self._cookie_string_dirty:
+            return self._cached_cookie_string
+
         parts = []
         # 1. Device identification cookies (persistent, set on first visit)
         if self.ig_did:
@@ -211,7 +218,9 @@ class SessionInfo:
         if self.rur:
             parts.append(f'rur="{self.rur}"')
         parts.append(f"wd={self.screen_resolution}")
-        return "; ".join(parts)
+        self._cached_cookie_string = "; ".join(parts)
+        self._cookie_string_dirty = False
+        return self._cached_cookie_string
 
     def to_dict(self) -> Dict:
         """Convert session data to dict (for saving)."""
@@ -358,6 +367,10 @@ class SessionManager:
         """
         Get next active session (round-robin).
         Reactivates deactivated (but valid) sessions up to max_reactivations times.
+
+        NOTE: Does NOT increment total_requests counter.
+        The counter should only be incremented when an actual HTTP request is sent.
+        Use report_request() for that purpose.
         """
         with self._lock:
             active = [s for s in self._sessions if s.is_active and s.is_valid]
@@ -377,8 +390,14 @@ class SessionManager:
             self._index += 1
 
             session.last_used = time.time()
-            session.total_requests += 1
             return session
+
+    def report_request(self, session: SessionInfo) -> None:
+        """
+        Record that an actual HTTP request was sent using this session.
+        Called by HttpClient after a successful request dispatch.
+        """
+        session.total_requests += 1
 
     # ─── COOKIE UPDATE (from response) ──────────────────────
 
@@ -414,6 +433,7 @@ class SessionManager:
                     if value and value != getattr(session, attr):
                         setattr(session, attr, value)
                         session._cookie_updates += 1
+                        session._cookie_string_dirty = True  # Invalidate cache
                         updated.append(f"{name}={value[:15]}..."
                                        if len(value) > 15 else f"{name}={value}")
 
@@ -424,6 +444,7 @@ class SessionManager:
                 if rur_val:
                     if rur_val != session.rur:
                         session.rur = rur_val
+                        session._cookie_string_dirty = True  # Invalidate cache
                         updated.append("rur")
         except Exception as e:
             logger.debug(f"[Session] Cookie capture skipped: {e}")
