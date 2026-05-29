@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **proxy_health.py** — Removed a dead `import requests` inside `ProxyHealthChecker.check_all()`. The method performs its checks via `curl_cffi` (in `_check_proxy`), so the unused import served no purpose and raised `ModuleNotFoundError` whenever `requests` was not installed.
+- **Test suite** — Repaired 29 tests that broke after the v1.1.88 enterprise-architecture refactor but were not updated:
+  - `test_100_batch12.py` — inject the new `_breakers` (`CircuitBreakerRegistry`) attribute into the hand-built `AsyncHttpClient`, which `_request()` now requires.
+  - `test_api_methods.py`, `test_anon_remaining.py`, `test_public_bulk_monitor_sched.py` — `PublicAPI` reads now route through `client.cached_call(key, fetch_fn)`; the mocked client is configured to execute `fetch_fn` so the underlying `*_chain` mocks run.
+  - `test_session_manager.py` — `get_session()` no longer increments `total_requests` (now done by `report_request()`); the test was updated to the new contract.
+  - Result: full suite is back to **6242 passed, 43 skipped, 0 failed**.
+
+### Documentation
+
+- **README.md** — Corrected metrics to match the actual codebase:
+  - Coverage badge/text `86% / ~86.4%` → `~83.6%` (core package; `agent/` and `web/` are excluded from measurement).
+  - Agent tools `161` → `162` (actual `TOOL_HANDLERS` count) in the badge, intro, agent section, feature table, and project tree.
+  - Public Anonymous API header `23 methods` → `22 methods` (matches the 22 data methods and the diagnostics count; `cache_stats`/`invalidate_cache`/`request_count` are infra helpers).
+  - GraphQL doc_ids header `16 verified` → `16 documented of 36 registered` (the `DOC_IDS` registry holds 36 entries, several marked `UNVERIFIED`).
+
+---
+
 ## [1.1.88] — 2026-05-28
 
 ### Added (v1.1.88)
