@@ -92,8 +92,6 @@ class ProxyHealthChecker:
         Returns:
             dict: {total, alive, dead, recovered, results: [{url, alive, latency}]}
         """
-        import requests
-
         proxies = self._proxy_mgr._proxies
         results = []
         alive_count = 0

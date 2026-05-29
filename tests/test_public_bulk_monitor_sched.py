@@ -21,6 +21,9 @@ class TestPublicAPIDeep:
     def _make(self):
         from instaharvest_v2.api.public import PublicAPI
         anon = M()
+        # PublicAPI routes reads through anon.cached_call(key, fetch_fn).
+        # Make the mock execute the fetch_fn so underlying *_chain mocks run.
+        anon.cached_call.side_effect = lambda key_parts, fetch_fn, ttl=None: fetch_fn()
         return PublicAPI(anon)
 
     def test_get_profile(self):

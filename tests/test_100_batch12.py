@@ -45,6 +45,7 @@ class TestAsyncClientRequest12:
         """Build AsyncHttpClient with properly mocked internals."""
         from instaharvest_v2.async_client import AsyncHttpClient
         from instaharvest_v2.session_manager import SessionInfo
+        from instaharvest_v2.core import CircuitBreakerRegistry
 
         sess = M(spec=SessionInfo)
         sess.cookies = {"csrftoken":"csrf","sessionid":"sess","ds_user_id":"123"}
@@ -99,7 +100,7 @@ class TestAsyncClientRequest12:
             _session_refresh_callback=None,
             _retry=rt_mock,
             _events=None, _async_session=curl_sess, _is_refreshing=False,
-            _fb_dtsg_provider=fb, _rotation=rot)
+            _fb_dtsg_provider=fb, _rotation=rot, _breakers=CircuitBreakerRegistry())
         return obj
 
     def test_get_200(self):

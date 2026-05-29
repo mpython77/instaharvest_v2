@@ -180,8 +180,12 @@ class TestSessionManager:
     def test_get_session_increments_request_count(self, sm):
         sm.add_session(session_id="s1", csrf_token="c1", ds_user_id="u1")
         s = sm.get_session()
+        # get_session() no longer bumps total_requests — only report_request() does
+        # (the counter must reflect actual HTTP dispatches, not session lookups).
+        assert s.total_requests == 0
+        sm.report_request(s)
         assert s.total_requests == 1
-        sm.get_session()
+        sm.report_request(s)
         assert s.total_requests == 2
 
     def test_report_error(self, sm):
