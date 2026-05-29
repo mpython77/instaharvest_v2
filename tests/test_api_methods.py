@@ -363,6 +363,7 @@ class TestSyncPublicAPIMethods:
     def test_get_profile(self):
         from instaharvest_v2.api.public import PublicAPI
         mock_client = M()
+        mock_client.cached_call.side_effect = lambda key_parts, fetch_fn, ttl=None: fetch_fn()
         mock_client.get_profile_chain.return_value = {"username": "t", "followers": 10}
         api = PublicAPI(mock_client)
         result = api.get_profile("@Test")
@@ -371,6 +372,7 @@ class TestSyncPublicAPIMethods:
     def test_get_post(self):
         from instaharvest_v2.api.public import PublicAPI
         mock_client = M()
+        mock_client.cached_call.side_effect = lambda key_parts, fetch_fn, ttl=None: fetch_fn()
         mock_client.get_post_chain.return_value = {"shortcode": "A"}
         api = PublicAPI(mock_client)
         result = api.get_post_by_shortcode("A")
@@ -424,6 +426,7 @@ class TestSyncPublicAPIMethods:
     def test_is_public(self):
         from instaharvest_v2.api.public import PublicAPI
         mock_client = M()
+        mock_client.cached_call.side_effect = lambda key_parts, fetch_fn, ttl=None: fetch_fn()
         mock_client.get_profile_chain.return_value = {"is_private": False}
         api = PublicAPI(mock_client)
         result = api.is_public("test")

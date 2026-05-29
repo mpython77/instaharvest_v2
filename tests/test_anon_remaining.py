@@ -477,6 +477,7 @@ class TestSyncPublicAPIMethods:
     def test_get_profile(self):
         from instaharvest_v2.api.public import PublicAPI
         mock_client = MagicMock()
+        mock_client.cached_call.side_effect = lambda key_parts, fetch_fn, ttl=None: fetch_fn()
         mock_client.get_profile_chain.return_value = {"username": "test"}
         api = PublicAPI(mock_client)
         result = api.get_profile("@Test")
@@ -485,6 +486,7 @@ class TestSyncPublicAPIMethods:
     def test_get_post_by_shortcode(self):
         from instaharvest_v2.api.public import PublicAPI
         mock_client = MagicMock()
+        mock_client.cached_call.side_effect = lambda key_parts, fetch_fn, ttl=None: fetch_fn()
         mock_client.get_post_chain.return_value = {"shortcode": "ABC"}
         api = PublicAPI(mock_client)
         result = api.get_post_by_shortcode("ABC")
