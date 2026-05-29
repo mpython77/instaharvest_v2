@@ -7,12 +7,12 @@
 [![License](https://img.shields.io/github/license/mpython77/instaharvest_v2)](https://github.com/mpython77/instaharvest_v2/blob/main/LICENSE)
 ![Modules](https://img.shields.io/badge/modules-33+33-green)
 ![Async](https://img.shields.io/badge/async-full_parity-brightgreen)
-![Agent Tools](https://img.shields.io/badge/agent_tools-161-orange)
+![Agent Tools](https://img.shields.io/badge/agent_tools-162-orange)
 ![Tests](https://img.shields.io/badge/tests-6242_passed-success)
-![Coverage](https://img.shields.io/badge/coverage-86%25-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)
 [![Docs](https://img.shields.io/badge/docs-online-blue?logo=readthedocs)](https://mpython77.github.io/instaharvest_v2/)
 
-> 33 sync + 33 async modules • 315+ functions • 161 agent tools • Pydantic models • AI Agent • CI/CD • 6242 tests passed
+> 33 sync + 33 async modules • 315+ functions • 162 agent tools • Pydantic models • AI Agent • CI/CD • 6242 tests passed
 >
 > 📖 **Documentation:** [mpython77.github.io/instaharvest_v2](https://mpython77.github.io/instaharvest_v2/)
 
@@ -179,7 +179,7 @@ post = ig.public.get_post_by_url("https://instagram.com/reel/ABC123/")
 # Returns: video_url, display_url, likes, views, comments, audio, owner, carousel_media
 ```
 
-### 🤖 AI Agent (161 built-in tools)
+### 🤖 AI Agent (162 built-in tools)
 
 ```python
 from instaharvest_v2 import Instagram
@@ -352,7 +352,7 @@ ig.auth.validate_session()
 ig.auth.logout()
 ```
 
-### 🌐 Public Anonymous API (23 methods, no login!)
+### 🌐 Public Anonymous API (22 methods, no login!)
 
 ```python
 ig = Instagram.anonymous(unlimited=True)
@@ -448,7 +448,7 @@ for col in saved["posts"]:
     print(f"{col['collection_name']} | {col['media_count']} items")
 ```
 
-**Available doc_ids (16 verified):**
+**Key doc_ids (16 documented of 36 registered):**
 
 | Key | Endpoint | Status |
 | ----- | ---------- | -------- |
@@ -632,7 +632,7 @@ print(user.some_new_field)    # works!
 | 🧩 **Challenge handler** | Auto-resolve email/SMS/consent challenges |
 | ⚡ **Full async parity** | 33 sync + 33 async modules — complete feature match |
 | 📦 **Pydantic models** | Typed returns, dict-like access, backward compatible |
-| 🤖 **AI Agent** | 13+ providers, 161 tools, natural language control, memory, webhooks |
+| 🤖 **AI Agent** | 13+ providers, 162 tools, natural language control, memory, webhooks |
 | 📊 **Advanced tools** | Analytics, Export, Growth, Automation, Monitor, Pipeline, Diagnostics |
 | 🔬 **Diagnostics** | 41-method health check (sync+async), CLI support, JSON output |
 | 🏗️ **Core infra** | Circuit breaker, token bucket, response cache, connection pool, metrics, structured logging |
@@ -709,7 +709,7 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 **Current status:**
 
 - ✅ 6242 tests passed (43 skipped)
-- 📊 ~86.4% code coverage
+- 📊 ~83.6% code coverage (core package; `agent/` and `web/` excluded from measurement)
 
 ---
 
@@ -783,7 +783,7 @@ instaharvest_v2/
 ├── agent/                 # AI Agent system
 │   ├── core.py            # InstaAgent main class
 │   ├── providers/         # AI providers (13: Gemini, OpenAI, Claude, etc.)
-│   ├── tools/             # 161 built-in tools
+│   ├── tools/             # 162 built-in tools
 │   │   ├── instagram_tools.py  # Instagram tools (profile, posts, reels, comments)
 │   │   ├── media_tools.py      # Media & social tools (download, follow, like)
 │   │   ├── file_tools.py       # File I/O tools
