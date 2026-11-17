@@ -23,23 +23,18 @@ from .proxy_manager import ProxyManager
 from .rate_limiter import RateLimiter
 from .session_manager import SessionManager, SessionInfo
 from .log_config import get_debug_logger
-from .http_utils import build_request_headers
+from .http_utils import build_request_headers, build_html_headers, normalize_api_url
 from .config import (
     API_BASE,
     BASE_URL,
     IG_APP_ID,
+    LATEST_SERVER_REVISION,
     MAX_RETRIES,
     RETRY_BACKOFF_FACTOR,
     RETRY_STATUS_CODES,
     REQUEST_TIMEOUT,
     CONNECT_TIMEOUT,
 )
-
-# Instagram server build hash — extracted from live page.
-# Used as fallback for x-instagram-ajax header when warm-up can't parse HTML.
-# Update periodically: browser DevTools → Console →
-#   document.documentElement.innerHTML.match(/server_revision["\s:]+([\d]+)/)?.[1]
-LATEST_SERVER_REVISION = "1034642761"
 
 from .exceptions import (
     InstagramError,
@@ -59,7 +54,7 @@ from .core import (
     CircuitBreakerRegistry,
     CircuitOpenError,
 )
-from ._endpoint_keys import endpoint_key
+from ._endpoint_keys import endpoint_key, resolve_endpoint_key
 from . import _http_metrics as _metrics
 
 logger = logging.getLogger("instaharvest_v2")
@@ -286,7 +281,7 @@ class HttpClient:
         Returns:
             JSON response (dict)
         """
-        url = full_url or f"{API_BASE}{endpoint}"
+        url = normalize_api_url(endpoint, full_url)
         return self._request("GET", url, params=params, rate_category=rate_category, session=session)
 
     def post(
@@ -312,8 +307,45 @@ class HttpClient:
         Returns:
             JSON response (dict)
         """
-        url = full_url or f"{API_BASE}{endpoint}"
+        url = normalize_api_url(endpoint, full_url)
         return self._request("POST", url, data=data, params=params, rate_category=rate_category, session=session)
+
+    def request(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[Dict] = None,
+        data: Optional[Dict] = None,
+        rate_category: Optional[str] = None,
+        session: Optional[SessionInfo] = None,
+        full_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Send an HTTP request using either a relative endpoint or `/api/v1/...` path.
+
+        Args:
+            method: HTTP method ("GET", "POST", etc.)
+            endpoint: API path ("/feed/..." or "/api/v1/...") or full URL
+            params: Query parameters
+            data: POST body payload
+            rate_category: Rate limit category (auto-selected from method if None)
+            session: Explicit SessionInfo override
+            full_url: Optional full URL override
+
+        Returns:
+            Parsed JSON response dict
+        """
+        m_upper = method.upper()
+        cat = rate_category or ("post_default" if m_upper == "POST" else "get_default")
+        url = normalize_api_url(endpoint, full_url)
+        return self._request(
+            m_upper,
+            url,
+            params=params,
+            data=data,
+            rate_category=cat,
+            session=session,
+        )
 
     def upload_raw(
         self,
@@ -343,6 +375,43 @@ class HttpClient:
             rate_category=rate_category,
             session=session,
         )
+
+    def get_html(
+        self,
+        url: str,
+        authenticated: bool = True,
+        session: Optional[SessionInfo] = None,
+    ) -> str:
+        """
+        Fetch raw HTML from an Instagram web page (reusing Chrome TLS and proxy).
+
+        Args:
+            url: Full URL (e.g. "https://www.instagram.com/" or profile URL)
+            authenticated: Include session cookies when True; omit for public SSR
+            session: Optional explicit session
+
+        Returns:
+            Response HTML text (empty string on failure)
+        """
+        sess = session or (self._session_mgr.get_session() if authenticated else None)
+        headers = build_html_headers(sess=sess, authenticated=authenticated)
+
+        proxy_dict = self._proxy_mgr.get_curl_proxy()
+        kwargs: Dict[str, Any] = {
+            "url": url,
+            "headers": headers,
+            "timeout": (CONNECT_TIMEOUT, REQUEST_TIMEOUT),
+            "allow_redirects": True,
+            "verify": not bool(proxy_dict),
+        }
+        if proxy_dict:
+            kwargs["proxies"] = proxy_dict
+
+        curl_sess = self._get_curl_session()
+        resp = curl_sess.get(**kwargs)
+        if authenticated and sess is not None:
+            self._update_session_cookies(resp, sess)
+        return resp.text if getattr(resp, "status_code", 0) == 200 else ""
 
     def _update_session_cookies(self, response, session: "SessionInfo") -> None:
         """
@@ -393,8 +462,8 @@ class HttpClient:
 
         # Per-endpoint circuit breaker. Fail-fast if recent failures have
         # opened the circuit for this endpoint pattern.
-        breaker = self._breakers.get_or_create(endpoint_key(url))
-        ep_key = endpoint_key(url)
+        ep_key = resolve_endpoint_key(url, params=params, data=data)
+        breaker = self._breakers.get_or_create(ep_key)
         request_started_at = time.time()
 
         def _record_terminal_error(exc: Exception) -> None:
@@ -455,6 +524,7 @@ class HttpClient:
                     attempt=attempt + 1,
                     max_attempts=self._retry.max_retries + 1,
                     proxy_url=proxy_url,
+                    fingerprint=getattr(sess, "fingerprint", None),
                 )
 
                 # Headers

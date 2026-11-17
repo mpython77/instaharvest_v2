@@ -25,6 +25,8 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+from ..http_utils import maybe_await
+
 logger = logging.getLogger("instaharvest_v2.pipeline")
 
 
@@ -98,7 +100,7 @@ class AsyncPipelineAPI:
             conn.commit()
 
             # Profile
-            user = self._users.get_by_username(username)
+            user = await maybe_await(self._users.get_by_username(username))
             user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
             profile_data = await self._user_to_dict(user)
             profile_data["scraped_at"] = datetime.now().isoformat()
@@ -247,7 +249,7 @@ class AsyncPipelineAPI:
 
         lines_written = 0
 
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
         with open(output_path, "w", encoding="utf-8") as f:
@@ -410,7 +412,9 @@ class AsyncPipelineAPI:
                 params = {"count": "33"}
                 if cursor:
                     params["max_id"] = cursor
-                result = self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params=params)
+                result = await maybe_await(
+                    self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params=params)
+                )
             except Exception as e:
                 break
             if not result or not isinstance(result, dict):
@@ -433,9 +437,9 @@ class AsyncPipelineAPI:
         while len(all_users) < max_count:
             try:
                 if list_type == "followers":
-                    result = self._friendships.get_followers(user_id, count=50, after=cursor)
+                    result = await maybe_await(self._friendships.get_followers(user_id, count=50, after=cursor))
                 else:
-                    result = self._friendships.get_following(user_id, count=50, after=cursor)
+                    result = await maybe_await(self._friendships.get_following(user_id, count=50, after=cursor))
             except Exception as e:
                 break
             users = result.get("users", [])

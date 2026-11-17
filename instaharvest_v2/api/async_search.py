@@ -235,7 +235,7 @@ class AsyncSearchAPI:
 
             # Wait between pages (not after the last page)
             if page < max_pages - 1 and delay > 0:
-                time.sleep(delay)
+                await asyncio.sleep(delay)
 
         return HashtagSearchResult(
             posts=all_posts,

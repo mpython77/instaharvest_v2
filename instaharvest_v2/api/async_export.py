@@ -28,6 +28,8 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Union
 
+from ..http_utils import maybe_await
+
 logger = logging.getLogger("instaharvest_v2.export")
 
 
@@ -247,7 +249,7 @@ class AsyncExportAPI:
         start = time.time()
 
         # Resolve user ID
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = user.pk if hasattr(user, "pk") else user.get("pk") or user.get("user_id")
         if not user_id:
             raise ValueError(f"Could not resolve user ID for '{username}'")
@@ -274,7 +276,7 @@ class AsyncExportAPI:
 
             while exported < effective_max:
                 try:
-                    result = get_fn(user_id, count=50, after=cursor)
+                    result = await maybe_await(get_fn(user_id, count=50, after=cursor))
                 except Exception as e:
                     logger.warning(f"Export {list_type} page error: {e}")
                     break
@@ -290,12 +292,12 @@ class AsyncExportAPI:
                     # Enrich with full profile
                     if enrich and row.get("username"):
                         try:
-                            full = self._users.get_by_username(row["username"])
+                            full = await maybe_await(self._users.get_by_username(row["username"]))
                             row = await self._user_to_row(full)
                         except Exception as e:
                             logger.debug(f"operation failed: {e}")
 
-                    if filters and not filters.matches(row):
+                    if filters and not await maybe_await(filters.matches(row)):
                         filtered_out += 1
                         continue
 
@@ -369,7 +371,7 @@ class AsyncExportAPI:
 
             while exported < count and pages < max_pages:
                 try:
-                    result = self._hashtags.get_recent_media(tag, max_id=cursor)
+                    result = await maybe_await(self._hashtags.get_recent_media(tag, max_id=cursor))
                 except Exception as e:
                     logger.warning(f"Hashtag page error: {e}")
                     break
@@ -378,7 +380,9 @@ class AsyncExportAPI:
                 if not items:
                     # Try sections endpoint
                     try:
-                        result = self._hashtags.get_sections(tag, tab=section, max_id=cursor)
+                        result = await maybe_await(
+                            self._hashtags.get_sections(tag, tab=section, max_id=cursor)
+                        )
                         sections = result.get("sections", []) if isinstance(result, dict) else []
                         items = []
                         for sec in sections:
@@ -404,7 +408,7 @@ class AsyncExportAPI:
 
                     row = await self._user_to_row(user_data)
 
-                    if filters and not filters.matches(row):
+                    if filters and not await maybe_await(filters.matches(row)):
                         filtered_out += 1
                         continue
 
@@ -458,7 +462,7 @@ class AsyncExportAPI:
         """
         start = time.time()
         try:
-            result = self._media.get_likers(media_id)
+            result = await maybe_await(self._media.get_likers(media_id))
         except Exception as e:
             logger.error(f"Get likers error: {e}")
             return {"exported": 0, "error": str(e)}
@@ -487,7 +491,7 @@ class AsyncExportAPI:
         """
         start = time.time()
         try:
-            comments = self._media.get_all_comments(media_id, max_pages=max_pages)
+            comments = await maybe_await(self._media.get_all_comments(media_id, max_pages=max_pages))
         except Exception as e:
             logger.error(f"Get comments error: {e}")
             return {"exported": 0, "error": str(e)}
@@ -532,7 +536,7 @@ class AsyncExportAPI:
 
         # Profile
         try:
-            profile = self._users.get_full_profile(username)
+            profile = await maybe_await(self._users.get_full_profile(username))
             data["profile"] = profile if isinstance(profile, dict) else await self._user_to_row(profile)
         except Exception as e:
             data["profile"] = {"error": str(e)}
@@ -542,7 +546,9 @@ class AsyncExportAPI:
             try:
                 user_id = data["profile"].get("user_id") or data["profile"].get("pk")
                 if user_id:
-                    feed = self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params={"count": "12"})
+                    feed = await maybe_await(
+                        self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params={"count": "12"})
+                    )
                     data["recent_posts"] = feed.get("items", []) if feed else []
             except Exception as e:
                 data["recent_posts"] = {"error": str(e)}
@@ -552,7 +558,9 @@ class AsyncExportAPI:
             try:
                 user_id = data["profile"].get("user_id") or data["profile"].get("pk")
                 if user_id:
-                    result = self._friendships.get_followers(user_id, count=include_followers_sample)
+                    result = await maybe_await(
+                        self._friendships.get_followers(user_id, count=include_followers_sample)
+                    )
                     data["followers_sample"] = [
                         await self._user_to_row(u) for u in result.get("users", [])
                     ]
@@ -627,7 +635,7 @@ class AsyncExportAPI:
 
             for u in users:
                 row = await self._user_to_row(u)
-                if filters and not filters.matches(row):
+                if filters and not await maybe_await(filters.matches(row)):
                     filtered_out += 1
                     continue
                 writer.writerow(row)

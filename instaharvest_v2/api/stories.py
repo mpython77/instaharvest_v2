@@ -558,6 +558,31 @@ class StoriesAPI:
             rate_category="get_default",
         )
 
+    def get_highlights(self, user_id: int | str) -> Dict[str, Any]:
+        """Alias for `get_highlights_tray` matching BulkDownloadAPI contract."""
+        return self.get_highlights_tray(user_id)
+
+    def upload_photo(
+        self,
+        path: Optional[str] = None,
+        image_data: Optional[bytes] = None,
+    ) -> Dict[str, Any]:
+        """Upload a photo story via UploadAPI."""
+        from .upload import UploadAPI
+        return UploadAPI(self._client).post_story_photo(image_path=path, image_data=image_data)
+
+    def upload_video(
+        self,
+        path: Optional[str] = None,
+        video_data: Optional[bytes] = None,
+        duration: float = 0,
+    ) -> Dict[str, Any]:
+        """Upload a video story via UploadAPI."""
+        from .upload import UploadAPI
+        return UploadAPI(self._client).post_story_video(
+            video_path=path, video_data=video_data, duration=duration
+        )
+
     def get_highlights_parsed(self, user_id: int | str) -> List[Dict[str, Any]]:
         """
         Get highlights list in structured format.

@@ -20,6 +20,7 @@ Usage:
     ig.bulk_download.everything("cristiano", "downloads/cristiano/")
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -27,6 +28,8 @@ import re
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Union
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.bulk_download")
 
@@ -79,7 +82,7 @@ class AsyncBulkDownloadAPI:
             dict: {downloaded, skipped, errors, total, duration_seconds}
         """
         start = time.time()
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
         if not user_id:
             raise ValueError(f"Could not resolve user for '{username}'")
@@ -187,13 +190,13 @@ class AsyncBulkDownloadAPI:
         if not self._stories:
             return {"downloaded": 0, "error": "StoriesAPI not available"}
 
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
         os.makedirs(output_dir, exist_ok=True)
 
         try:
-            stories = self._stories.get_user_stories(user_id)
+            stories = await maybe_await(self._stories.get_user_stories(user_id))
             items = stories.get("items", []) if isinstance(stories, dict) else []
         except Exception as e:
             return {"downloaded": 0, "error": str(e)}
@@ -246,14 +249,14 @@ class AsyncBulkDownloadAPI:
         if not self._stories:
             return {"downloaded": 0, "error": "StoriesAPI not available"}
 
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
         os.makedirs(output_dir, exist_ok=True)
         total_downloaded = 0
 
         try:
-            highlights = self._stories.get_highlights(user_id)
+            highlights = await maybe_await(self._stories.get_highlights(user_id))
             trays = highlights.get("tray", []) if isinstance(highlights, dict) else []
         except Exception as e:
             return {"downloaded": 0, "error": str(e)}
@@ -267,7 +270,7 @@ class AsyncBulkDownloadAPI:
 
             # Fetch highlight items
             try:
-                hl_data = self._stories.get_highlight_items(highlight_id)
+                hl_data = await maybe_await(self._stories.get_highlight_items(highlight_id))
                 items = hl_data.get("items", []) if isinstance(hl_data, dict) else []
             except Exception as e:
                 items = tray.get("items", [])
@@ -369,7 +372,9 @@ class AsyncBulkDownloadAPI:
                 params = {"count": "33"}
                 if cursor:
                     params["max_id"] = cursor
-                result = self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params=params)
+                result = await maybe_await(
+                    self._client.request("GET", f"/api/v1/feed/user/{user_id}/", params=params)
+                )
             except Exception as e:
                 break
 
@@ -428,13 +433,13 @@ class AsyncBulkDownloadAPI:
         return urls
 
     async def _download_file(self, url: str, filepath: str) -> None:
-        """Download a single file."""
+        """Download a single file cleanly without blocking the event loop."""
         if not url:
             return
         try:
-            self._download.url_to_file(url, filepath)
+            await maybe_await(self._download.url_to_file(url, filepath))
         except AttributeError:
-            # Fallback: direct HTTP download
+            # Fallback: direct HTTP download in worker thread
             import urllib.request
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            urllib.request.urlretrieve(url, filepath)
+            await asyncio.to_thread(urllib.request.urlretrieve, url, filepath)

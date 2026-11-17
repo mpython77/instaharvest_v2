@@ -90,9 +90,17 @@ class SessionFingerprint:
         )
 
     @classmethod
-    def pick_random(cls) -> "SessionFingerprint":
-        """Pick a random profile from the pool. Used when no user_agent provided."""
-        profile = random.choice(SESSION_UA_PROFILES)
+    def pick_random(cls, prefer_platform: Optional[str] = None) -> "SessionFingerprint":
+        """Pick a random profile from the pool, optionally matching a target OS platform."""
+        candidates = SESSION_UA_PROFILES
+        if prefer_platform:
+            filtered = [
+                p for p in SESSION_UA_PROFILES
+                if p.get("sec_ch_ua_platform", "").strip('"').lower() == prefer_platform.lower()
+            ]
+            if filtered:
+                candidates = filtered
+        profile = random.choice(candidates)
         return cls.from_profile(profile)
 
 
@@ -815,6 +823,13 @@ class SessionManager:
             if rur.startswith('"') and rur.endswith('"'):
                 rur = rur[1:-1]  # Strip surrounding quotes
 
+            effective_ua = user_agent
+            if not effective_ua:
+                import sys as _sys
+                plat_map = {"win32": "Windows", "darwin": "macOS", "linux": "Linux"}
+                target_plat = plat_map.get(_sys.platform)
+                effective_ua = SessionFingerprint.pick_random(prefer_platform=target_plat).user_agent
+
             # Add session
             sess = self.add_session(
                 session_id=session_id,
@@ -823,7 +838,7 @@ class SessionManager:
                 mid=ig_cookies.get("mid", ""),
                 ig_did=ig_cookies.get("ig_did", ""),
                 datr=ig_cookies.get("datr", ""),
-                user_agent=user_agent,
+                user_agent=effective_ua,
                 rur=rur,
             )
 

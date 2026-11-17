@@ -177,13 +177,14 @@ class TestAsyncGrowthAPIBody:
         run(api._log_action("follow", "user_x", "99"))
         assert len(api._action_log) == 500
 
-    @patch("time.sleep")
+    @patch("asyncio.sleep", new_callable=AsyncMock)
     def test_smart_delay(self, mock_sleep):
         from instaharvest_v2.api.async_growth import GrowthLimits
         api = self._api()
         limits = GrowthLimits(min_delay=0.01, max_delay=0.02)
-        run(api._smart_delay(limits))
-        mock_sleep.assert_called_once()
+        with patch("random.uniform", return_value=0.015), patch("random.random", return_value=0.5):
+            run(api._smart_delay(limits))
+        mock_sleep.assert_any_await(0.015)
 
     def test_should_stop_rate_limit(self):
         from instaharvest_v2.api.async_growth import GrowthLimits

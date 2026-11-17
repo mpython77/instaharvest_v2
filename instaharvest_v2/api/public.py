@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Callable
 
 from ..anon_client import AnonClient
+from .. import parsers as _parsers
 from .. import utils
 
 logger = logging.getLogger("instaharvest_v2.public")
@@ -348,11 +349,19 @@ class PublicAPI:
             edges = media.get("edges", [])
             if edges:
                 posts = self._client._parse_timeline_edges(edges)
-                for p in posts:
-                    pk = p.get("pk") or p.get("shortcode")
-                    if pk and pk not in seen_pks:
-                        seen_pks.add(pk)
-                        all_posts.append(p)
+                _parsers.merge_unique_posts(all_posts, seen_pks, posts)
+
+        # Stage 1b: HTML SSR fallback (xig_user_by_username timeline)
+        if not all_posts and hasattr(self._client, "get_profile_html"):
+            try:
+                prof_html = self._client.get_profile_html(username)
+                if isinstance(prof_html, dict):
+                    user_id = user_id or prof_html.get("user_id") or prof_html.get("pk")
+                    _parsers.merge_unique_posts(
+                        all_posts, seen_pks, prof_html.get("recent_posts") or []
+                    )
+            except Exception as e:
+                logger.debug(f"[Public] get_all_posts HTML fallback failed: {e}")
 
         if len(all_posts) >= max_count:
             return all_posts[:max_count]
@@ -736,6 +745,13 @@ class PublicAPI:
         result = self._client.get_hashtag_sections(
             hashtag, tab=tab
         )
+        if (not result or not result.get("posts")) and hasattr(self._client, "get_hashtag_html"):
+            try:
+                html_res = self._client.get_hashtag_html(hashtag)
+                if isinstance(html_res, dict) and isinstance(html_res.get("posts"), list) and html_res["posts"]:
+                    result = html_res
+            except Exception as e:
+                logger.debug(f"[Public] Hashtag HTML fallback failed: {e}")
         if result:
             result["posts"] = result["posts"][:max_count]
             return result
@@ -771,6 +787,13 @@ class PublicAPI:
         result = self._client.get_location_sections(
             location_id, tab=tab
         )
+        if (not result or (not result.get("posts") and not result.get("location"))) and hasattr(self._client, "get_location_html"):
+            try:
+                html_res = self._client.get_location_html(location_id)
+                if isinstance(html_res, dict) and (html_res.get("posts") or html_res.get("location")):
+                    result = html_res
+            except Exception as e:
+                logger.debug(f"[Public] Location HTML fallback failed: {e}")
         if result:
             result["posts"] = result["posts"][:max_count]
             return result

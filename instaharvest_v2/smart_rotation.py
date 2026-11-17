@@ -63,6 +63,7 @@ class RotationContext:
     identity_platform: str = ""  # "Windows"
     impersonation: str = ""      # "chrome142"
     escalation: str = "NORMAL"   # current escalation level
+    identity_locked: bool = False
 
     # Outcome (filled after request)
     status_code: int = 0
@@ -185,6 +186,7 @@ class SmartRotationCoordinator:
         attempt: int,
         max_attempts: int,
         proxy_url: Optional[str] = None,
+        fingerprint: Optional[Any] = None,
     ) -> RotationContext:
         """
         Called BEFORE each request attempt.
@@ -194,7 +196,21 @@ class SmartRotationCoordinator:
             self._total_requests += 1
             self._cleanup_blacklist()
 
-        identity = self._anti_detect.get_identity()
+        if fingerprint is not None:
+            import re as _re
+            ver_m = _re.search(r"Chrome/(\d+)", getattr(fingerprint, "user_agent", "") or "")
+            chrome_ver = ver_m.group(1) if ver_m else "142"
+            platform_raw = getattr(fingerprint, "sec_ch_ua_platform", '"Windows"')
+            platform_clean = str(platform_raw).strip('"') or "Windows"
+            browser_label = f"Chrome {chrome_ver}"
+            imp_label = getattr(fingerprint, "impersonate", "chrome142") or "chrome142"
+            locked = True
+        else:
+            identity = self._anti_detect.get_identity()
+            browser_label = f"{identity.browser_name.title()} {identity.browser_version}"
+            platform_clean = identity.platform
+            imp_label = identity.impersonation
+            locked = False
 
         ctx = RotationContext(
             method=method,
@@ -204,10 +220,11 @@ class SmartRotationCoordinator:
             start_time=time.time(),
             proxy_url=proxy_url,
             proxy_short=_mask_proxy(proxy_url),
-            identity_browser=f"{identity.browser_name.title()} {identity.browser_version}",
-            identity_platform=identity.platform,
-            impersonation=identity.impersonation,
+            identity_browser=browser_label,
+            identity_platform=platform_clean,
+            impersonation=imp_label,
             escalation=self._anti_detect.escalation_name,
+            identity_locked=locked,
         )
 
         return ctx
@@ -269,53 +286,70 @@ class SmartRotationCoordinator:
         # ─── Smart rotation decisions ────────────────────
 
         if error_category == "rate_limit":
-            # Full rotation — change everything
+            # Full rotation (or proxy+TLS only if session fingerprint is locked)
             rotate_proxy = True
-            rotate_identity = True
             rotate_tls = True
-            self._anti_detect.on_error("rate_limit")
-            actions.append("ROTATE_ALL")
+            if ctx.identity_locked:
+                rotate_identity = False
+                actions.append("ROTATE_PROXY+TLS(LOCKED)")
+            else:
+                rotate_identity = True
+                self._anti_detect.on_error("rate_limit")
+                actions.append("ROTATE_ALL")
             if pause_seconds > 0:
                 actions.append(f"PAUSE_{pause_seconds:.0f}s")
 
         elif error_category == "challenge":
-            # Identity is detected — switch identity + TLS
-            rotate_identity = True
             rotate_tls = True
-            self._anti_detect.on_error("challenge")
-            actions.append("ROTATE_IDENTITY+TLS")
+            if ctx.identity_locked:
+                rotate_identity = False
+                actions.append("ROTATE_TLS(LOCKED)")
+            else:
+                rotate_identity = True
+                self._anti_detect.on_error("challenge")
+                actions.append("ROTATE_IDENTITY+TLS")
 
         elif error_category == "network":
             # Proxy problem — switch proxy + TLS, keep identity
             rotate_proxy = True
             rotate_tls = True
-            self._anti_detect.on_error("network")
+            if not ctx.identity_locked:
+                self._anti_detect.on_error("network")
             actions.append("ROTATE_PROXY+TLS")
 
         elif error_category == "login":
-            # Session dead — proxy still works, rotate identity
-            rotate_identity = True
-            self._anti_detect.on_error("login")
-            actions.append("ROTATE_IDENTITY")
+            if ctx.identity_locked:
+                rotate_identity = False
+                actions.append("KEEP_IDENTITY(LOCKED)")
+            else:
+                rotate_identity = True
+                self._anti_detect.on_error("login")
+                actions.append("ROTATE_IDENTITY")
 
         elif error_category == "not_found":
             # Valid response, no rotation needed
             actions.append("NONE")
 
         elif error_category == "instagram_error":
-            # Generic IG error — switch identity + TLS
-            rotate_identity = True
             rotate_tls = True
-            self._anti_detect.on_error("instagram")
-            actions.append("ROTATE_IDENTITY+TLS")
+            if ctx.identity_locked:
+                rotate_identity = False
+                actions.append("ROTATE_TLS(LOCKED)")
+            else:
+                rotate_identity = True
+                self._anti_detect.on_error("instagram")
+                actions.append("ROTATE_IDENTITY+TLS")
 
         else:
-            # Unknown — full rotation for safety
             rotate_proxy = True
-            rotate_identity = True
             rotate_tls = True
-            self._anti_detect.on_error("unknown")
-            actions.append("ROTATE_ALL")
+            if ctx.identity_locked:
+                rotate_identity = False
+                actions.append("ROTATE_PROXY+TLS(LOCKED)")
+            else:
+                rotate_identity = True
+                self._anti_detect.on_error("unknown")
+                actions.append("ROTATE_ALL")
 
         # ─── Proxy blacklist check ───────────────────────
         if ctx.proxy_url and rotate_proxy:

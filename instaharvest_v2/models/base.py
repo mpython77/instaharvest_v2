@@ -27,16 +27,16 @@ class InstaModel(BaseModel):
 
     @field_validator("pk", mode="before", check_fields=False)
     @classmethod
-    def coerce_pk(cls, v: Any) -> int:
+    def coerce_pk(cls, v: Any) -> Any:
         """
-        Coerce pk.
+        Coerce pk according to the model's declared `pk` field type.
 
-        Args:
-            v: Parameter v
-
-        Returns:
-            Return value of coerce_pk
+        Models with `pk: str` (e.g., base64 notification PKs) keep string values,
+        while numeric models coerce safely to int.
         """
+        pk_field = cls.model_fields.get("pk")
+        if pk_field is not None and pk_field.annotation is str:
+            return str(v) if v is not None else ""
         if v is None:
             return 0
         return int(v)
@@ -61,6 +61,10 @@ class InstaModel(BaseModel):
         """
         if v is None:
             return None
+        ts_field = cls.model_fields.get("timestamp")
+        if ts_field is not None and ts_field.annotation in (float, int):
+            if isinstance(v, (int, float)):
+                return float(v) if ts_field.annotation is float else int(v)
         from datetime import datetime
         if isinstance(v, (int, float)):
             try:

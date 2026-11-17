@@ -267,13 +267,43 @@ class FeedAPI:
             dict: {posts, has_next, end_cursor, count}
         """
         # Strategy 1: GraphQL v2
+        gql_res = None
         if self._graphql:
             try:
-                return self._graphql.get_saved_v2(count=count, after=cursor)
+                gql_res = self._graphql.get_saved_v2(count=count, after=cursor)
+                if isinstance(gql_res, dict) and gql_res.get("posts"):
+                    return gql_res
             except Exception as e:
-                logger.debug(f"[Feed] GraphQL saved failed: {e}, trying legacy...")
+                logger.debug(f"[Feed] GraphQL saved failed: {e}, trying REST...")
 
-        # Strategy 2: Legacy query_hash
+        # Strategy 2: REST /feed/saved/posts/ (active on 2026 web)
+        try:
+            params: Dict[str, Any] = {"count": str(count)}
+            if cursor:
+                params["max_id"] = cursor
+            rest_data = self._client.get(
+                "/feed/saved/posts/",
+                params=params,
+                rate_category="get_feed",
+            )
+            if isinstance(rest_data, dict) and isinstance(rest_data.get("items"), list):
+                items = [
+                    it.get("media", it) if isinstance(it, dict) else it
+                    for it in rest_data["items"]
+                ]
+                return {
+                    "posts": items,
+                    "has_next": bool(rest_data.get("more_available", False)),
+                    "end_cursor": rest_data.get("next_max_id"),
+                    "count": len(items),
+                }
+        except Exception as e:
+            logger.debug(f"[Feed] REST saved posts failed: {e}, trying legacy...")
+
+        if isinstance(gql_res, dict):
+            return gql_res
+
+        # Strategy 3: Legacy query_hash
         try:
             sess = self._client.get_session()
             variables = {"id": str(sess.ds_user_id) if sess else "", "first": count}

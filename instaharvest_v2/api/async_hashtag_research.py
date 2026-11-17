@@ -24,6 +24,8 @@ import math
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
+from ..http_utils import maybe_await
+
 logger = logging.getLogger("instaharvest_v2.hashtag_research")
 
 
@@ -235,8 +237,10 @@ class AsyncHashtagResearchAPI:
     async def _get_hashtag_info(self, tag: str) -> Dict:
         """Get basic hashtag info."""
         try:
-            result = self._client.request(
-                "GET", f"/api/v1/tags/{tag}/info/",
+            result = await maybe_await(
+                self._client.request(
+                    "GET", f"/api/v1/tags/{tag}/info/",
+                )
             )
             return result if isinstance(result, dict) else {}
         except Exception as e:
@@ -246,9 +250,11 @@ class AsyncHashtagResearchAPI:
         """Sample recent posts from a hashtag."""
         posts = []
         try:
-            result = self._client.request(
-                "GET", f"/api/v1/tags/{tag}/sections/",
-                params={"tab": "recent", "count": str(min(count, 50))},
+            result = await maybe_await(
+                self._client.request(
+                    "GET", f"/api/v1/tags/{tag}/sections/",
+                    params={"tab": "recent", "count": str(min(count, 50))},
+                )
             )
             if result and isinstance(result, dict):
                 for sec in result.get("sections", []):
@@ -262,9 +268,11 @@ class AsyncHashtagResearchAPI:
         # Also try top posts
         if len(posts) < count:
             try:
-                result = self._client.request(
-                    "GET", f"/api/v1/tags/{tag}/sections/",
-                    params={"tab": "top"},
+                result = await maybe_await(
+                    self._client.request(
+                        "GET", f"/api/v1/tags/{tag}/sections/",
+                        params={"tab": "top"},
+                    )
                 )
                 if result and isinstance(result, dict):
                     for sec in result.get("sections", []):

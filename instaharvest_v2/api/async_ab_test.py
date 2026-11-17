@@ -24,6 +24,7 @@ Usage:
     print(f"Winner: Variant {winner['winner']}")
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -31,6 +32,8 @@ import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.ab_test")
 
@@ -58,10 +61,7 @@ class AsyncABTestAPI:
         self._analytics = analytics_api
         self._tests: Dict[str, Dict] = {}
         self._storage_file = "ab_tests.json"
-        
-        # We cannot await in __init__, so we schedule the load task
-        import asyncio
-        asyncio.create_task(self._load())
+        self._load_sync()
 
     # ═══════════════════════════════════════════════════════════
     # CREATE TEST
@@ -161,9 +161,9 @@ class AsyncABTestAPI:
 
             try:
                 if photo:
-                    result = self._upload.photo(photo, caption=full_caption)
+                    result = await maybe_await(self._upload.photo(photo, caption=full_caption))
                 elif video:
-                    result = self._upload.video(video, caption=full_caption)
+                    result = await maybe_await(self._upload.video(video, caption=full_caption))
                 else:
                     continue
 
@@ -184,7 +184,7 @@ class AsyncABTestAPI:
 
             # Wait between variants
             if posted < len(test["variants"]):
-                time.sleep(delay_between)
+                await asyncio.sleep(delay_between)
 
         test["status"] = "running"
         await self._save()
@@ -265,7 +265,7 @@ class AsyncABTestAPI:
                 continue
 
             try:
-                info = self._media.get_info(media_id)
+                info = await maybe_await(self._media.get_info(media_id))
                 if isinstance(info, dict):
                     variant["likes"] = info.get("like_count", 0)
                     variant["comments"] = info.get("comment_count", 0)
@@ -397,11 +397,15 @@ class AsyncABTestAPI:
         except Exception as e:
             logger.debug(f"Save tests error: {e}")
 
-    async def _load(self):
-        """Load tests from JSON file."""
+    def _load_sync(self) -> None:
+        """Load tests from JSON file synchronously."""
         if os.path.exists(self._storage_file):
             try:
-                with open(self._storage_file, "r") as f:
+                with open(self._storage_file, "r", encoding="utf-8") as f:
                     self._tests = json.load(f)
-            except Exception as e:
+            except Exception:
                 self._tests = {}
+
+    async def _load(self):
+        """Load tests from JSON file."""
+        self._load_sync()

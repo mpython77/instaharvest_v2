@@ -30,6 +30,8 @@ import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Set
 
+from ..http_utils import maybe_await
+
 logger = logging.getLogger("instaharvest_v2.ai_suggest")
 
 
@@ -234,7 +236,7 @@ class AsyncAISuggestAPI:
         Returns:
             dict: {hashtags, niche, already_using, new_suggestions}
         """
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         bio = getattr(user, "biography", "") or (user.get("biography", "") if isinstance(user, dict) else "")
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
@@ -248,9 +250,11 @@ class AsyncAISuggestAPI:
 
         if user_id:
             try:
-                result = self._client.request(
-                    "GET", f"/api/v1/feed/user/{user_id}/",
-                    params={"count": "20"},
+                result = await maybe_await(
+                    self._client.request(
+                        "GET", f"/api/v1/feed/user/{user_id}/",
+                        params={"count": "20"},
+                    )
                 )
                 if result and isinstance(result, dict):
                     for item in result.get("items", []):

@@ -26,6 +26,7 @@ Usage:
     ig.scheduler.stop()
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -34,6 +35,8 @@ import time
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.scheduler")
 
@@ -138,9 +141,8 @@ class AsyncSchedulerAPI:
         self._running = False
         self._check_interval = 30  # seconds
 
-        # Load persisted jobs
-        import asyncio
-        asyncio.create_task(self._load_jobs())
+        # Load persisted jobs synchronously during construction
+        self._load_jobs_sync()
 
     # ═══════════════════════════════════════════════════════════
     # SCHEDULE ACTIONS
@@ -313,19 +315,26 @@ class AsyncSchedulerAPI:
     # ═══════════════════════════════════════════════════════════
 
     async def start(self) -> None:
-        """Start background worker thread."""
+        """Start background worker task."""
         if self._running:
             logger.warning("Scheduler already running")
             return
 
         self._running = True
-        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True, name="scheduler-worker")
-        self._worker_thread.start()
+        self._worker_task = asyncio.create_task(self._worker_loop(), name="scheduler-worker")
         logger.info(f"▶️ Scheduler started | {len([j for j in self._jobs if j.status == 'pending'])} pending jobs")
 
     async def stop(self) -> None:
         """Stop background worker."""
         self._running = False
+        worker_task = getattr(self, "_worker_task", None)
+        if worker_task is not None and not worker_task.done():
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+            self._worker_task = None
         if self._worker_thread:
             self._worker_thread.join(timeout=5)
             self._worker_thread = None
@@ -348,7 +357,7 @@ class AsyncSchedulerAPI:
                 await self._check_and_execute()
             except Exception as e:
                 logger.error(f"Scheduler worker error: {e}")
-            time.sleep(self._check_interval)
+            await asyncio.sleep(self._check_interval)
 
     async def _check_and_execute(self) -> None:
         """Check for due jobs and execute them."""
@@ -370,32 +379,36 @@ class AsyncSchedulerAPI:
 
         try:
             if job.job_type == "post":
-                result = self._upload.photo(
-                    path=job.params["photo"],
-                    caption=job.params.get("caption", ""),
+                result = await maybe_await(
+                    self._upload.photo(
+                        path=job.params["photo"],
+                        caption=job.params.get("caption", ""),
+                    )
                 )
                 job.result = {"media_id": result} if result else None
 
             elif job.job_type == "story":
                 if job.params.get("photo"):
-                    result = self._stories.upload_photo(path=job.params["photo"])
+                    result = await maybe_await(self._stories.upload_photo(path=job.params["photo"]))
                 elif job.params.get("video"):
-                    result = self._stories.upload_video(path=job.params["video"])
+                    result = await maybe_await(self._stories.upload_video(path=job.params["video"]))
                 else:
                     raise ValueError("No media specified for story")
                 job.result = {"uploaded": True}
 
             elif job.job_type == "reel":
-                result = self._upload.reel(
-                    path=job.params["video"],
-                    caption=job.params.get("caption", ""),
+                result = await maybe_await(
+                    self._upload.reel(
+                        path=job.params["video"],
+                        caption=job.params.get("caption", ""),
+                    )
                 )
                 job.result = {"media_id": result} if result else None
 
             elif job.job_type == "action":
                 action_fn = getattr(job, "_action", None)
                 if action_fn:
-                    result = action_fn(**job.params.get("kwargs", {}))
+                    result = await maybe_await(action_fn(**job.params.get("kwargs", {})))
                     job.result = {"result": str(result)}
 
             job.status = "done"
@@ -421,14 +434,14 @@ class AsyncSchedulerAPI:
     async def _save_jobs(self) -> None:
         """Save jobs to JSON file."""
         try:
-            data = [j.to_dict() for j in self._jobs]
+            data = [await maybe_await(j.to_dict()) for j in self._jobs]
             with open(self._persist_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, default=str)
         except Exception as e:
             logger.error(f"Save jobs error: {e}")
 
-    async def _load_jobs(self) -> None:
-        """Load jobs from JSON file."""
+    def _load_jobs_sync(self) -> None:
+        """Load jobs from JSON file synchronously."""
         if not os.path.isfile(self._persist_path):
             return
         try:
@@ -438,6 +451,10 @@ class AsyncSchedulerAPI:
             logger.info(f"📂 Loaded {len(self._jobs)} pending jobs from {self._persist_path}")
         except Exception as e:
             logger.warning(f"Load jobs error: {e}")
+
+    async def _load_jobs(self) -> None:
+        """Load jobs from JSON file."""
+        self._load_jobs_sync()
 
     @staticmethod
     async def _parse_time(time_str: str) -> datetime:

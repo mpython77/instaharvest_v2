@@ -218,6 +218,30 @@ class Notification(InstaModel):
     # Media specific
     media: List[NotifMedia] = Field(default_factory=list)
 
+    @field_validator("pk", mode="before")
+    @classmethod
+    def coerce_pk(cls, v: Any) -> str:
+        """Preserve string/base64 notification PKs without int coercion."""
+        return str(v) if v is not None else ""
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> float:
+        """Keep notification timestamp as float epoch (overrides InstaModel.parse_timestamp)."""
+        if v is None or v == "":
+            return 0.0
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, datetime):
+            return v.timestamp()
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            try:
+                return datetime.fromisoformat(str(v).strip()).timestamp()
+            except (TypeError, ValueError):
+                return 0.0
+
     # ─── Properties ──────────────────────────────────
 
     @property
@@ -406,16 +430,17 @@ class NotifInbox(InstaModel):
         ]
 
         # Partition headers
-        partition = data.get("partition", {})
-        headers = partition.get("time_bucket", {}).get("headers", [])
+        partition = data.get("partition") or {}
+        time_bucket = partition.get("time_bucket") or {}
+        headers = time_bucket.get("headers") or []
 
         return cls(
             counts=counts,
-            last_checked=data.get("last_checked", 0.0),
+            last_checked=data.get("last_checked") or 0.0,
             new_notifications=new_stories,
             old_notifications=old_stories,
-            is_last_page=data.get("is_last_page", True),
-            continuation_token=data.get("continuation_token", 0),
+            is_last_page=bool(data.get("is_last_page", True)),
+            continuation_token=data.get("continuation_token") or 0,
             partition_headers=headers,
         )
 

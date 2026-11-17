@@ -107,10 +107,10 @@ class TestLocation:
     def test_get_feed_with_max_id(self):
         from instaharvest_v2.api.location import LocationAPI
         client = M()
-        client.get.return_value = {"sections": []}
+        client.post.return_value = {"sections": []}
         api = LocationAPI(client)
         api.get_feed("123", max_id="cursor1")
-        client.get.assert_called()
+        client.post.assert_called()
 
     def test_search_with_coords(self):
         from instaharvest_v2.api.location import LocationAPI

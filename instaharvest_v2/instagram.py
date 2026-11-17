@@ -30,7 +30,7 @@ from .plugin import Plugin, PluginManager
 from .proxy_health import ProxyHealthChecker
 from .story_composer import StoryComposer
 from .anon_client import AnonClient
-from ._lazy_modules import LAZY_API_MODULES, LAZY_MODULE_NAMES
+from ._lazy_modules import LAZY_API_MODULES, LAZY_MODULE_NAMES, resolve_lazy_module
 
 # Re-exports kept for backward compatibility (referenced by callers as
 # `from instaharvest_v2.instagram import ExportFilter` etc.). They are
@@ -237,29 +237,7 @@ class Instagram:
         the factory accesses self.graphql, which triggers another
         __getattr__ call if needed.
         """
-        # Avoid recursion during early construction (before _client is set)
-        if name.startswith("_"):
-            raise AttributeError(
-                f"{type(self).__name__!r} has no attribute {name!r}"
-            )
-
-        factory = LAZY_API_MODULES.get(name)
-        if factory is None:
-            raise AttributeError(
-                f"{type(self).__name__!r} has no attribute {name!r}"
-            )
-
-        try:
-            module = factory(self)
-        except Exception as exc:
-            # Wrap the original error so the user sees which module failed
-            raise AttributeError(
-                f"Failed to load API module {name!r}: {type(exc).__name__}: {exc}"
-            ) from exc
-
-        # Cache on the instance — future accesses bypass __getattr__
-        self.__dict__[name] = module
-        return module
+        return resolve_lazy_module(self, name, LAZY_API_MODULES)
 
     def __dir__(self) -> List[str]:
         """Include lazy-loaded API modules in dir() output."""
@@ -714,6 +692,24 @@ class Instagram:
         """Force browser identity rotation (fingerprint, UA, headers)."""
         self._anti_detect.rotate_identity()
         return self
+
+    def verify_session(self) -> dict:
+        """
+        Verify current authenticated session health using live web HTML.
+
+        Extracts PolarisViewer profile, server revision, and live Relay doc_ids
+        in a single lightweight GET request without triggering spam checks.
+        """
+        sess = self._session_mgr.get_session()
+        if not sess:
+            return {"valid": False, "error": "No active session"}
+        try:
+            from .parsers import build_session_verification_report
+            html = self._client.get_html("https://www.instagram.com/", authenticated=True)
+            return build_session_verification_report(html, sess)
+        except Exception as e:
+            logger.debug(f"verify_session failed: {e}")
+            return {"valid": False, "ds_user_id": getattr(sess, "ds_user_id", ""), "error": str(e)}
 
     # ─── Info ───────────────────────────────────────────────
 

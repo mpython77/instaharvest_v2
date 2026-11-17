@@ -24,10 +24,13 @@ Safety:
     - Whitelist / blacklist support
 """
 
+import asyncio
 import logging
 import random
 import time
 from typing import Any, Callable, Dict, List, Optional, Set, Union
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.growth")
 
@@ -184,7 +187,7 @@ class AsyncGrowthAPI:
             filters = GrowthFilters(**filters)
         limits = limits or GrowthLimits()
 
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
         if not user_id:
             raise ValueError(f"Could not resolve user ID for '{username}'")
@@ -232,7 +235,9 @@ class AsyncGrowthAPI:
 
         # Get users from hashtag posts
         try:
-            result = self._client.request("GET", f"/api/v1/tags/{tag}/sections/", params={"tab": "recent"})
+            result = await maybe_await(
+                self._client.request("GET", f"/api/v1/tags/{tag}/sections/", params={"tab": "recent"})
+            )
             sections = result.get("sections", []) if result else []
         except Exception as e:
             logger.error(f"Hashtag fetch error: {e}")
@@ -259,12 +264,12 @@ class AsyncGrowthAPI:
                 skipped += 1
                 continue
 
-            if filters and not filters.matches(user_data):
+            if filters and not await maybe_await(filters.matches(user_data)):
                 skipped += 1
                 continue
 
             try:
-                self._friendships.follow(uid)
+                await maybe_await(self._friendships.follow(uid))
                 followed += 1
                 followed_users.append(uname)
                 await self._log_action("follow", uname, uid)
@@ -332,7 +337,7 @@ class AsyncGrowthAPI:
                 continue
 
             try:
-                self._friendships.unfollow(uid)
+                await maybe_await(self._friendships.unfollow(uid))
                 unfollowed += 1
                 await self._log_action("unfollow", uname, uid)
                 if on_progress:
@@ -388,7 +393,7 @@ class AsyncGrowthAPI:
                 continue
 
             try:
-                self._friendships.unfollow(user.get("pk"))
+                await maybe_await(self._friendships.unfollow(user.get("pk")))
                 unfollowed += 1
                 await self._log_action("unfollow", uname, user.get("pk"))
                 await self._smart_delay(limits)
@@ -516,9 +521,9 @@ class AsyncGrowthAPI:
         while followed < count:
             try:
                 if list_type == "followers":
-                    result = self._friendships.get_followers(user_id, count=50, after=cursor)
+                    result = await maybe_await(self._friendships.get_followers(user_id, count=50, after=cursor))
                 else:
-                    result = self._friendships.get_following(user_id, count=50, after=cursor)
+                    result = await maybe_await(self._friendships.get_following(user_id, count=50, after=cursor))
             except Exception as e:
                 logger.warning(f"List fetch error: {e}")
                 break
@@ -538,12 +543,12 @@ class AsyncGrowthAPI:
                     skipped += 1
                     continue
 
-                if filters and not filters.matches(u):
+                if filters and not await maybe_await(filters.matches(u)):
                     skipped += 1
                     continue
 
                 try:
-                    self._friendships.follow(uid)
+                    await maybe_await(self._friendships.follow(uid))
                     followed += 1
                     followed_users.append(uname)
                     await self._log_action("follow", uname, uid)
@@ -588,9 +593,9 @@ class AsyncGrowthAPI:
         while len(all_users) < max_count:
             try:
                 if list_type == "followers":
-                    result = self._friendships.get_followers(user_id, count=50, after=cursor)
+                    result = await maybe_await(self._friendships.get_followers(user_id, count=50, after=cursor))
                 else:
-                    result = self._friendships.get_following(user_id, count=50, after=cursor)
+                    result = await maybe_await(self._friendships.get_following(user_id, count=50, after=cursor))
             except Exception as e:
                 break
             users = result.get("users", [])
@@ -608,7 +613,7 @@ class AsyncGrowthAPI:
         # Occasionally longer pause (simulates reading)
         if random.random() < 0.1:
             base += random.uniform(30, 120)
-        time.sleep(base)
+        await asyncio.sleep(base)
 
     @staticmethod
     async def _should_stop(error: Exception, limits: GrowthLimits) -> bool:

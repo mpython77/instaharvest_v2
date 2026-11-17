@@ -7,9 +7,19 @@ Used by both AnonClient and AsyncAnonClient — eliminates code duplication.
 All functions are pure (no I/O, no self) — they transform dicts/strings.
 """
 
+import json
 import logging
 import re
-from typing import Dict, List
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+try:
+    import orjson as _orjson
+
+    def _loads_json(raw: str) -> Any:
+        return _orjson.loads(raw)
+except ImportError:
+    def _loads_json(raw: str) -> Any:
+        return json.loads(raw)
 
 logger = logging.getLogger("instaharvest_v2.parsers")
 
@@ -623,3 +633,581 @@ def parse_graphql_docid_media(media: Dict) -> Dict:
         result["carousel_count"] = len(children)
 
     return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# 2025/2026 SSR `data-sjs` HTML PARSERS (shared sync & async)
+# ═══════════════════════════════════════════════════════════════
+
+_SJS_SCRIPT_RE = re.compile(
+    r'<script\b[^>]*type=["\']application/json["\'][^>]*>(.*?)</script>',
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _iter_sjs_scripts(html: str, *markers: str) -> List[Any]:
+    """Parse `<script type="application/json">` blocks matching any substring marker."""
+    if not html:
+        return []
+    parsed: List[Any] = []
+    for raw in _SJS_SCRIPT_RE.findall(html):
+        if markers and not any(m in raw for m in markers):
+            continue
+        try:
+            parsed.append(_loads_json(raw))
+        except Exception:
+            continue
+    return parsed
+
+
+def _find_key_values(obj: Any, key: str) -> List[Any]:
+    """Recursively collect all values for `key` inside nested dicts/lists."""
+    found: List[Any] = []
+    stack: List[Any] = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            if key in cur:
+                found.append(cur[key])
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    return found
+
+
+def _parse_polaris_media_node(node: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a Polaris / XIG / XDT SSR media node into a standard post dict."""
+    caption_raw = node.get("caption")
+    if isinstance(caption_raw, dict):
+        caption = caption_raw.get("text", "") or ""
+    elif isinstance(caption_raw, str):
+        caption = caption_raw
+    else:
+        caption = ""
+
+    shortcode = node.get("code") or node.get("shortcode") or ""
+    typename = node.get("__typename", "")
+    raw_type = node.get("media_type")
+    video_versions = node.get("video_versions") or []
+    carousel_raw = node.get("carousel_media") or []
+
+    is_video = (
+        raw_type == 2
+        or "Video" in typename
+        or bool(video_versions)
+        or node.get("product_type") == "clips"
+    )
+    if raw_type == 8 or "Sidecar" in typename or carousel_raw:
+        post_type = "carousel"
+        media_type = "GraphSidecar"
+    elif is_video:
+        post_type = "video"
+        media_type = "GraphVideo"
+    else:
+        post_type = "image"
+        media_type = "GraphImage"
+
+    images: List[Dict[str, Any]] = []
+    img_v2 = node.get("image_versions2") or {}
+    candidates = img_v2.get("candidates") or []
+    for cand in candidates:
+        if isinstance(cand, dict) and cand.get("url"):
+            images.append({
+                "url": cand["url"],
+                "width": cand.get("width"),
+                "height": cand.get("height"),
+            })
+    display_uri = node.get("display_uri") or node.get("display_url") or ""
+    if not display_uri and images:
+        best_img = max(images, key=lambda c: (c.get("width") or 0) * (c.get("height") or 0))
+        display_uri = best_img.get("url", "")
+    if display_uri and not images:
+        images.append({
+            "url": display_uri,
+            "width": node.get("original_width"),
+            "height": node.get("original_height"),
+        })
+
+    video_url = None
+    if isinstance(video_versions, list) and video_versions:
+        first_v = video_versions[0]
+        if isinstance(first_v, dict):
+            video_url = first_v.get("url")
+
+    likes = node.get("like_count") or 0
+    comments_count = node.get("comment_count") or 0
+    pk = str(node.get("pk") or node.get("id") or "")
+    mentions = [m.lower() for m in re.findall(r'@([a-zA-Z0-9_.]+)', caption)] if caption else []
+
+    post: Dict[str, Any] = {
+        "pk": pk,
+        "id": node.get("id") or pk,
+        "shortcode": shortcode,
+        "post_url": f"https://www.instagram.com/p/{shortcode}/" if shortcode else "",
+        "media_type": media_type,
+        "post_type": post_type,
+        "product_type": node.get("product_type"),
+        "display_url": display_uri,
+        "thumbnail_url": display_uri,
+        "images": images,
+        "is_video": is_video,
+        "likes": likes,
+        "comments": comments_count,
+        "comments_count": comments_count,
+        "caption": caption,
+        "taken_at": node.get("taken_at"),
+        "accessibility_caption": node.get("accessibility_caption", "") or "",
+        "mentions": mentions,
+    }
+    if video_url:
+        post["video_url"] = video_url
+    if node.get("play_count") is not None or node.get("view_count") is not None:
+        post["play_count"] = node.get("play_count") or node.get("view_count")
+        post["video_views"] = post["play_count"]
+    if node.get("original_width") and node.get("original_height"):
+        post["dimensions"] = {
+            "width": node["original_width"],
+            "height": node["original_height"],
+        }
+
+    user = node.get("user") or node.get("owner")
+    if isinstance(user, dict) and (user.get("username") or user.get("pk") or user.get("id")):
+        post["owner"] = {
+            "pk": str(user.get("pk") or user.get("id") or ""),
+            "username": user.get("username"),
+            "full_name": user.get("full_name"),
+            "is_verified": user.get("is_verified"),
+            "profile_pic_url": user.get("profile_pic_url"),
+        }
+
+    loc = node.get("location")
+    if isinstance(loc, dict):
+        post["location"] = {
+            "pk": loc.get("pk") or loc.get("id"),
+            "name": loc.get("name"),
+            "city": loc.get("city"),
+            "lat": loc.get("lat"),
+            "lng": loc.get("lng"),
+        }
+
+    usertags = node.get("usertags") or {}
+    if isinstance(usertags, dict) and usertags.get("in"):
+        post["tagged_users"] = [
+            t.get("user", {}).get("username", "").lower()
+            for t in usertags["in"]
+            if isinstance(t, dict) and t.get("user", {}).get("username")
+        ]
+
+    if carousel_raw:
+        children = []
+        for child in carousel_raw:
+            if not isinstance(child, dict):
+                continue
+            c_imgs = (child.get("image_versions2") or {}).get("candidates") or []
+            c_best = max(c_imgs, key=lambda x: (x.get("width") or 0) * (x.get("height") or 0)) if c_imgs else {}
+            c_vv = child.get("video_versions") or []
+            c_is_vid = child.get("media_type") == 2 or bool(c_vv)
+            children.append({
+                "pk": str(child.get("pk") or child.get("id") or ""),
+                "display_url": c_best.get("url", ""),
+                "is_video": c_is_vid,
+                "video_url": c_vv[0].get("url") if c_vv and isinstance(c_vv[0], dict) else None,
+                "display_resources": [
+                    {"url": r.get("url"), "width": r.get("width"), "height": r.get("height")}
+                    for r in c_imgs if isinstance(r, dict) and r.get("url")
+                ],
+            })
+        if children:
+            post["carousel_media"] = children
+            post["carousel_count"] = len(children)
+
+    return post
+
+
+def parse_profile_sjs(html: str) -> Dict[str, Any]:
+    """Extract profile metadata and timeline posts from SSR `xig_user_by_username` JSON."""
+    scripts = _iter_sjs_scripts(html, "xig_user_by_username")
+    if not scripts:
+        return {}
+
+    result: Dict[str, Any] = {}
+    recent_posts: List[Dict[str, Any]] = []
+    seen_codes = set()
+
+    for tree in scripts:
+        for user_obj in _find_key_values(tree, "xig_user_by_username"):
+            if not isinstance(user_obj, dict):
+                continue
+            if user_obj.get("username") or user_obj.get("follower_count") is not None:
+                pk = user_obj.get("pk") or user_obj.get("id")
+                if pk and not result.get("user_id"):
+                    result["user_id"] = str(pk)
+                    result["pk"] = str(pk)
+                if user_obj.get("id") and not result.get("fbid"):
+                    result["fbid"] = str(user_obj["id"])
+                for src_k, dst_k in (
+                    ("username", "username"),
+                    ("full_name", "full_name"),
+                    ("biography", "biography"),
+                    ("profile_pic_url", "profile_pic_url"),
+                    ("is_private", "is_private"),
+                    ("is_verified", "is_verified"),
+                    ("follower_count", "followers"),
+                    ("following_count", "following"),
+                    ("all_media_count", "posts_count"),
+                    ("bio_links", "bio_links"),
+                    ("has_any_clips", "has_clips"),
+                ):
+                    val = user_obj.get(src_k)
+                    if val is not None and (dst_k not in result or result[dst_k] in (None, "")):
+                        result[dst_k] = val
+
+            timeline = user_obj.get("polaris_ordered_timeline_connection")
+            if isinstance(timeline, dict):
+                for edge in timeline.get("edges") or []:
+                    node = edge.get("node") if isinstance(edge, dict) else None
+                    if not isinstance(node, dict):
+                        continue
+                    post = _parse_polaris_media_node(node)
+                    key = post.get("shortcode") or post.get("pk")
+                    if key and key not in seen_codes:
+                        seen_codes.add(key)
+                        recent_posts.append(post)
+
+    if recent_posts:
+        result["recent_posts"] = recent_posts
+    return result
+
+
+def parse_profile_html(html: str, username: str = "") -> Optional[Dict[str, Any]]:
+    """
+    Parse Instagram profile HTML across legacy and 2025/2026 SSR formats.
+
+    Shared by AnonClient.get_profile_html and AsyncAnonClient.get_profile_html.
+    Distinguishes true login redirects from public profile SSR pages that
+    embed navigation/footer `login/?next=` links.
+    """
+    if not html:
+        return None
+
+    result: Dict[str, Any] = {}
+
+    # Method 1: window._sharedData
+    shared_data_match = re.search(
+        r'window\._sharedData\s*=\s*({.+?})\s*;</script>',
+        html, re.DOTALL,
+    )
+    if shared_data_match:
+        try:
+            shared = _loads_json(shared_data_match.group(1))
+            user_data = (
+                shared.get("entry_data", {})
+                .get("ProfilePage", [{}])[0]
+                .get("graphql", {})
+                .get("user", {})
+            )
+            if user_data:
+                result = parse_graphql_user(user_data)
+        except Exception:
+            pass
+
+    # Method 2: window.__additionalDataLoaded
+    if not result:
+        additional_match = re.search(
+            r'window\.__additionalDataLoaded\s*\(\s*[\'"].*?[\'"]\s*,\s*({.+?})\s*\)\s*;',
+            html, re.DOTALL,
+        )
+        if additional_match:
+            try:
+                data = _loads_json(additional_match.group(1))
+                user_data = data.get("graphql", {}).get("user", {}) or data.get("user", {})
+                if user_data:
+                    result = parse_graphql_user(user_data)
+            except Exception:
+                pass
+
+    # Method 3: 2025/2026 SSR `data-sjs` Relay payload (`xig_user_by_username`)
+    if not result:
+        result = parse_profile_sjs(html)
+
+    # Method 4: JSON-LD schema
+    if not result:
+        ld_match = re.search(
+            r'<script type="application/ld\+json">\s*({.+?})\s*</script>',
+            html, re.DOTALL,
+        )
+        if ld_match:
+            try:
+                ld = _loads_json(ld_match.group(1))
+                result = {
+                    "username": ld.get("alternateName", "").lstrip("@"),
+                    "full_name": ld.get("name", ""),
+                    "biography": ld.get("description", ""),
+                    "profile_pic_url": ld.get("image", ""),
+                    "url": ld.get("url", ""),
+                }
+            except Exception:
+                pass
+
+    # Method 5: Meta tags fallback & enrichment
+    meta_data = parse_meta_tags(html)
+    if not result:
+        result = meta_data
+    elif meta_data:
+        for key in ("followers", "following", "posts_count"):
+            if not result.get(key) and meta_data.get(key):
+                result[key] = meta_data[key]
+        if not result.get("posts_count") and result.get("recent_posts"):
+            result["posts_count"] = len(result["recent_posts"])
+        for key in ("full_name", "biography", "profile_pic_url", "is_verified", "is_private"):
+            if not result.get(key) and meta_data.get(key):
+                result[key] = meta_data[key]
+
+    # Guard against true login redirects while allowing public SSR pages with login links
+    has_login_marker = '"LoginAndSignupPage"' in html or "login/?next=" in html
+    has_profile_identity = bool(
+        result.get("username")
+        or result.get("user_id")
+        or result.get("pk")
+        or result.get("followers")
+    )
+    if has_login_marker and not has_profile_identity:
+        return None
+
+    if result:
+        result["_strategy"] = "html_parse"
+        if username:
+            result["_username"] = username
+        return result
+
+    return None
+
+
+def parse_polaris_media_sjs(html: str, shortcode: str = "") -> Optional[Dict[str, Any]]:
+    """Extract post metadata, media URLs, and preview comments from `/p/{shortcode}/` SSR HTML."""
+    for tree in _iter_sjs_scripts(html, "xig_polaris_media"):
+        for pm in _find_key_values(tree, "xig_polaris_media"):
+            if not isinstance(pm, dict):
+                continue
+            media_node = pm.get("if_not_gated_logged_out")
+            if not isinstance(media_node, dict):
+                media_node = pm
+            if not (media_node.get("pk") or media_node.get("code")):
+                continue
+
+            post = _parse_polaris_media_node(media_node)
+            post["_strategy"] = "html_parse"
+            if shortcode and not post.get("shortcode"):
+                post["shortcode"] = shortcode
+                post["post_url"] = f"https://www.instagram.com/p/{shortcode}/"
+
+            # Extract preview comments from comments_connection
+            comments_conn = pm.get("comments_connection") or {}
+            parsed_comments: List[Dict[str, Any]] = []
+            for edge in comments_conn.get("edges") or []:
+                cnode = edge.get("node") if isinstance(edge, dict) else None
+                if not isinstance(cnode, dict):
+                    continue
+                cuser = cnode.get("user") or {}
+                parsed_comments.append({
+                    "pk": cnode.get("pk") or cnode.get("id"),
+                    "text": cnode.get("text", ""),
+                    "username": cuser.get("username", ""),
+                    "user_pk": cuser.get("pk") or cuser.get("id"),
+                    "is_verified": cuser.get("is_verified", False),
+                    "profile_pic_url": cuser.get("profile_pic_url"),
+                    "likes": cnode.get("comment_like_count", 0),
+                    "created_at": cnode.get("created_at"),
+                })
+            if parsed_comments:
+                post["comments"] = parsed_comments
+            return post
+    return None
+
+
+def parse_hashtag_sjs(html: str, tag_name: str) -> Optional[Dict[str, Any]]:
+    """Extract hashtag posts from `/explore/tags/{tag}/` SSR HTML."""
+    tag = tag_name.lstrip("#").strip().lower()
+    for tree in _iter_sjs_scripts(html, "xig_logged_out_popular_search_media_info"):
+        for info in _find_key_values(tree, "xig_logged_out_popular_search_media_info"):
+            if not isinstance(info, dict):
+                continue
+            edges = info.get("edges") or []
+            posts = [
+                _parse_polaris_media_node(e["node"])
+                for e in edges
+                if isinstance(e, dict) and isinstance(e.get("node"), dict)
+            ]
+            if posts:
+                page_info = info.get("page_info") or {}
+                return {
+                    "tag_name": tag,
+                    "posts": posts,
+                    "more_available": bool(page_info.get("has_next_page")),
+                    "next_max_id": page_info.get("end_cursor"),
+                    "next_page": None,
+                    "media_count": len(posts),
+                }
+    return None
+
+
+def parse_location_sjs(html: str, location_id: Union[int, str]) -> Optional[Dict[str, Any]]:
+    """Extract location metadata and posts from `/explore/locations/{id}/` SSR HTML."""
+    scripts = _iter_sjs_scripts(html, "xdt_location_get_web_info")
+    if not scripts:
+        return None
+
+    loc_dict: Optional[Dict[str, Any]] = None
+    posts: List[Dict[str, Any]] = []
+    more_available = False
+    next_max_id = None
+    media_count = 0
+
+    for tree in scripts:
+        for info in _find_key_values(tree, "xdt_location_get_web_info"):
+            if not isinstance(info, dict):
+                continue
+            li = (info.get("native_location_data") or {}).get("location_info") or {}
+            if li:
+                media_count = li.get("media_count") or 0
+                loc_dict = {
+                    "pk": li.get("location_id") or str(location_id),
+                    "name": li.get("name"),
+                    "address": li.get("location_address"),
+                    "city": li.get("location_city"),
+                    "lat": li.get("lat"),
+                    "lng": li.get("lng"),
+                    "slug": li.get("slug"),
+                    "category": li.get("category"),
+                }
+        for tab in _find_key_values(tree, "xdt_location_get_web_info_tab"):
+            if not isinstance(tab, dict):
+                continue
+            edges = tab.get("edges") or []
+            for edge in edges:
+                node = edge.get("node") if isinstance(edge, dict) else None
+                if isinstance(node, dict):
+                    posts.append(_parse_polaris_media_node(node))
+            page_info = tab.get("page_info") or {}
+            more_available = bool(page_info.get("has_next_page"))
+            next_max_id = page_info.get("end_cursor")
+
+    if loc_dict or posts:
+        return {
+            "location": loc_dict,
+            "posts": posts,
+            "more_available": more_available,
+            "next_max_id": next_max_id,
+            "media_count": media_count or len(posts),
+        }
+    return None
+
+
+def needs_post_html_fallback(post: Any) -> bool:
+    """Return True if post lookup is missing or only an incomplete embed stub."""
+    if not post or not isinstance(post, dict):
+        return True
+    return post.get("_strategy") == "embed" and not (
+        post.get("likes") or post.get("caption") or post.get("owner") or post.get("video_url")
+    )
+
+
+def merge_unique_posts(target: List[Dict[str, Any]], seen_pks: set, posts: List[Dict[str, Any]]) -> int:
+    """Append deduplicated posts into `target` and return count added."""
+    added = 0
+    for p in posts:
+        if not isinstance(p, dict):
+            continue
+        pk = p.get("pk") or p.get("shortcode")
+        if pk and pk not in seen_pks:
+            seen_pks.add(pk)
+            target.append(p)
+            added += 1
+    return added
+
+
+_POLARIS_VIEWER_RE = re.compile(r'"PolarisViewer"\s*,\s*\[\]\s*,\s*(\{.*?\})\s*,\s*\d+')
+_WEB_REV_RE = re.compile(
+    r'"server_revision"\s*:\s*(\d+)|"rollout_hash"\s*:\s*"([a-f0-9]+)"|"consistency"\s*:\s*\{\s*"rev"\s*:\s*(\d+)'
+)
+_WEB_DOC_ID_RE = re.compile(r'"(?:doc_id|queryID)"\s*:\s*"(\d{15,22})"')
+
+
+def parse_polaris_viewer(html: str) -> Optional[Dict[str, Any]]:
+    """Extract logged-in viewer profile dict (`PolarisViewer`) from web HTML."""
+    if not html:
+        return None
+    for match in _POLARIS_VIEWER_RE.finditer(html):
+        try:
+            payload = _loads_json(match.group(1))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            data = payload.get("data", payload)
+            if isinstance(data, dict) and (data.get("username") or data.get("id")):
+                return data
+    # Fallback scan through parsed JSON script blocks
+    for tree in _iter_sjs_scripts(html, "PolarisViewer"):
+        for val in _find_key_values(tree, "PolarisViewer"):
+            if isinstance(val, dict):
+                data = val.get("data", val)
+                if isinstance(data, dict) and (data.get("username") or data.get("id")):
+                    return data
+    return None
+
+
+def parse_web_revision(html: str) -> Optional[str]:
+    """Extract current Instagram web build/consistency revision from HTML."""
+    if not html:
+        return None
+    match = _WEB_REV_RE.search(html)
+    if match:
+        return match.group(1) or match.group(2) or match.group(3)
+    return None
+
+
+def parse_web_doc_ids(html: str) -> List[str]:
+    """Extract unique Relay/GraphQL doc_ids embedded in Instagram web HTML."""
+    if not html:
+        return []
+    return list(dict.fromkeys(_WEB_DOC_ID_RE.findall(html)))
+
+
+def apply_web_html_metadata(html: str, sess: Any = None) -> Optional[Dict[str, Any]]:
+    """
+    Extract revision and PolarisViewer profile from Instagram home HTML and
+    sync them onto `sess` when present.
+    """
+    if not isinstance(html, str) or not html:
+        return None
+    rev = parse_web_revision(html)
+    if rev and sess is not None and hasattr(sess, "x_instagram_ajax"):
+        sess.x_instagram_ajax = rev
+    viewer = parse_polaris_viewer(html)
+    if viewer and sess is not None and viewer.get("username") and hasattr(sess, "username"):
+        sess.username = viewer["username"]
+    return viewer
+
+
+def build_session_verification_report(html: str, sess: Any) -> Dict[str, Any]:
+    """
+    Validate a live web session from Instagram home HTML without logging secrets.
+
+    Populates `sess.username` and `sess.x_instagram_ajax` when available.
+    """
+    viewer = apply_web_html_metadata(html, sess=sess)
+    is_logged_in = isinstance(html, str) and bool(html) and (
+        bool(viewer) or ("not-logged-in" not in html[:600].lower() and "LoginAndSignupPage" not in html[:4000])
+    )
+    rev = getattr(sess, "x_instagram_ajax", "") or parse_web_revision(html or "") or ""
+    return {
+        "valid": bool(is_logged_in),
+        "ds_user_id": getattr(sess, "ds_user_id", "") or "",
+        "username": (viewer or {}).get("username") or getattr(sess, "username", "") or "",
+        "full_name": (viewer or {}).get("full_name", ""),
+        "is_private": bool((viewer or {}).get("is_private", False)),
+        "server_revision": rev,
+        "has_dtsg": bool(getattr(sess, "fb_dtsg", "") or (isinstance(html, str) and "DTSGInitialData" in html)),
+        "has_claim": bool(getattr(sess, "ig_www_claim", "")),
+        "live_doc_ids": parse_web_doc_ids(html) if isinstance(html, str) else [],
+    }

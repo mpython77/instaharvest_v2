@@ -174,6 +174,31 @@ class User(InstaModel):
         )
 
     @classmethod
+    def from_ssr_dict(cls, data: Dict[str, Any]) -> "User":
+        """Create User from SSR HTML (`parse_profile_html` / `parse_polaris_viewer`) dict."""
+        pk_val = data.get("pk") or data.get("user_id") or data.get("id") or 0
+        if "edge_followed_by" in data or "edge_follow" in data:
+            return cls.from_web_profile(data)
+        return cls(
+            pk=pk_val,
+            username=data.get("username", ""),
+            full_name=data.get("full_name", ""),
+            is_verified=bool(data.get("is_verified", False)),
+            is_private=bool(data.get("is_private", False)),
+            is_business=bool(data.get("is_business_account", False)),
+            is_professional=bool(data.get("is_professional_account", False)),
+            biography=data.get("biography", "") or "",
+            external_url=data.get("external_url", "") or "",
+            category=data.get("category_name") or data.get("category") or "",
+            followers=data.get("followers", 0) or 0,
+            following=data.get("following", 0) or 0,
+            posts_count=data.get("posts_count", 0) or 0,
+            profile_pic_url=data.get("profile_pic_url", "") or "",
+            profile_pic_url_hd=data.get("profile_pic_url_hd", "") or "",
+            fbid=str(data["fbid"]) if data.get("fbid") else None,
+        )
+
+    @classmethod
     def from_api_info(cls, data: Dict[str, Any]) -> "User":
         """
         Create User from /users/{id}/info/ response.

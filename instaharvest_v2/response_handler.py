@@ -78,7 +78,8 @@ class ResponseHandler:
         if "useragent mismatch" in msg_lower:
             raise InstagramError(
                 "User-Agent mismatch. USER_AGENT in .env must match "
-                "the UA from the browser where the session was created.",
+                "the UA from the browser where the session was created "
+                "(or endpoint may require mobile app User-Agent).",
                 status_code=status_code,
                 response=body,
             )

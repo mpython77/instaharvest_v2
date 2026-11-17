@@ -27,7 +27,8 @@ Adding a new API module:
        instance (and AsyncInstagram, if added there).
 """
 
-from typing import Any, Callable, Dict
+import importlib
+from typing import Any, Callable, Dict, Optional, Tuple
 
 
 # Type alias for a module factory: receives the Instagram instance,
@@ -261,3 +262,104 @@ LAZY_API_MODULES: Dict[str, ModuleFactory] = {
 
 # Public list for introspection / documentation tools.
 LAZY_MODULE_NAMES: tuple = tuple(LAZY_API_MODULES.keys())
+
+
+def _lazy_factory(
+    rel_module: str,
+    cls_name: str,
+    deps: Tuple[str, ...] = ("_client",),
+    kw_deps: Optional[Dict[str, str]] = None,
+    pass_self: bool = False,
+) -> ModuleFactory:
+    """Create a lazy factory that imports ``cls_name`` and injects dependencies."""
+
+    def _factory(ig: Any) -> Any:
+        mod = importlib.import_module(rel_module, package=__package__)
+        cls = getattr(mod, cls_name)
+        args = (ig,) if pass_self else tuple(getattr(ig, dep) for dep in deps)
+        kwargs = {k: getattr(ig, dep) for k, dep in (kw_deps or {}).items()}
+        return cls(*args, **kwargs)
+
+    return _factory
+
+
+def resolve_lazy_module(
+    instance: Any,
+    name: str,
+    registry: Dict[str, ModuleFactory],
+) -> Any:
+    """Resolve, cache on ``instance.__dict__``, and return a lazy API module."""
+    # Avoid recursion during early construction (before _client is set)
+    if name.startswith("_"):
+        raise AttributeError(
+            f"{type(instance).__name__!r} has no attribute {name!r}"
+        )
+
+    factory = registry.get(name)
+    if factory is None:
+        raise AttributeError(
+            f"{type(instance).__name__!r} has no attribute {name!r}"
+        )
+
+    try:
+        module = factory(instance)
+    except Exception as exc:
+        raise AttributeError(
+            f"Failed to load API module {name!r}: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    instance.__dict__[name] = module
+    return module
+
+
+# ─── Async Registry (for AsyncInstagram) ───────────────────
+
+
+_ASYNC_MODULE_SPECS: Tuple[Tuple[str, str, str, Tuple[str, ...], Optional[Dict[str, str]], bool], ...] = (
+    # Low-level async modules
+    ("users", ".api.async_users", "AsyncUsersAPI", ("_client",), None, False),
+    ("media", ".api.async_media", "AsyncMediaAPI", ("_client",), None, False),
+    ("friendships", ".api.async_friendships", "AsyncFriendshipsAPI", ("_client",), None, False),
+    ("graphql", ".api.async_graphql", "AsyncGraphQLAPI", ("_client",), None, False),
+    ("feed", ".api.async_feed", "AsyncFeedAPI", ("_client",), {"graphql": "graphql"}, False),
+    ("stories", ".api.async_stories", "AsyncStoriesAPI", ("_client",), None, False),
+    ("direct", ".api.async_direct", "AsyncDirectAPI", ("_client",), None, False),
+    ("search", ".api.async_search", "AsyncSearchAPI", ("_client",), None, False),
+    ("upload", ".api.async_upload", "AsyncUploadAPI", ("_client",), None, False),
+    ("hashtags", ".api.async_hashtags", "AsyncHashtagsAPI", ("_client",), None, False),
+    ("insights", ".api.async_insights", "AsyncInsightsAPI", ("_client",), None, False),
+    ("account", ".api.async_account", "AsyncAccountAPI", ("_client",), None, False),
+    ("notifications", ".api.async_notifications", "AsyncNotificationsAPI", ("_client",), None, False),
+    ("location", ".api.async_location", "AsyncLocationAPI", ("_client",), None, False),
+    ("collections", ".api.async_collections", "AsyncCollectionsAPI", ("_client",), None, False),
+    ("download", ".api.async_download", "AsyncDownloadAPI", ("_client",), None, False),
+    ("auth", ".api.async_auth", "AsyncAuthAPI", ("_client",), None, False),
+    ("discover", ".api.async_discover", "AsyncDiscoverAPI", ("_client",), None, False),
+    # High-level async modules (composing low-level APIs)
+    ("export", ".api.async_export", "AsyncExportAPI", ("_client", "users", "friendships", "media", "hashtags"), None, False),
+    ("analytics", ".api.async_analytics", "AsyncAnalyticsAPI", ("_client", "users", "media", "feed"), None, False),
+    ("scheduler", ".api.async_scheduler", "AsyncSchedulerAPI", ("upload", "stories"), None, False),
+    ("growth", ".api.async_growth", "AsyncGrowthAPI", ("_client", "users", "friendships"), None, False),
+    ("automation", ".api.async_automation", "AsyncAutomationAPI", ("_client", "direct", "media", "friendships", "stories"), None, False),
+    ("monitor", ".api.async_monitor", "AsyncMonitorAPI", ("_client", "users", "feed", "stories"), None, False),
+    ("bulk_download", ".api.async_bulk_download", "AsyncBulkDownloadAPI", ("_client", "download", "users", "stories"), None, False),
+    ("hashtag_research", ".api.async_hashtag_research", "AsyncHashtagResearchAPI", ("_client", "hashtags"), None, False),
+    ("pipeline", ".api.async_pipeline", "AsyncPipelineAPI", ("_client", "users", "friendships", "media"), None, False),
+    ("ai_suggest", ".api.async_ai_suggest", "AsyncAISuggestAPI", ("_client", "users", "hashtags", "hashtag_research"), None, False),
+    ("audience", ".api.async_audience", "AsyncAudienceAPI", ("_client", "users", "friendships"), None, False),
+    ("comment_manager", ".api.async_comment_manager", "AsyncCommentManagerAPI", ("_client", "media"), None, False),
+    ("ab_test", ".api.async_ab_test", "AsyncABTestAPI", ("_client", "upload", "media", "analytics"), None, False),
+    # Batch + Anonymous / public-data
+    ("batch", ".batch", "BatchAPI", (), None, True),
+    ("public", ".api.async_public", "AsyncPublicAPI", ("_anon_client",), None, False),
+    ("public_data", ".api.async_public_data", "AsyncPublicDataAPI", ("public",), None, False),
+)
+
+
+LAZY_ASYNC_API_MODULES: Dict[str, ModuleFactory] = {
+    attr: _lazy_factory(mod_path, cls_name, deps, kw_deps, pass_self)
+    for attr, mod_path, cls_name, deps, kw_deps, pass_self in _ASYNC_MODULE_SPECS
+}
+
+
+LAZY_ASYNC_MODULE_NAMES: tuple = tuple(LAZY_ASYNC_API_MODULES.keys())

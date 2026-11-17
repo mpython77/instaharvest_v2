@@ -4,8 +4,30 @@ HTTP Utilities for InstaHarvest v2
 Contains shared logic for synchronous and asynchronous HTTP clients to prevent code duplication.
 """
 
+import inspect
 from typing import Dict, Optional, Any
-from .config import IG_APP_ID, LATEST_SERVER_REVISION
+from .config import API_BASE, BASE_URL, IG_APP_ID, LATEST_SERVER_REVISION
+
+
+def normalize_api_url(endpoint: str, full_url: Optional[str] = None) -> str:
+    """Resolve an API endpoint or path into a full Instagram URL without double `/api/v1`."""
+    if full_url:
+        return full_url
+    if not endpoint:
+        return API_BASE
+    if endpoint.startswith(("http://", "https://")):
+        return endpoint
+    if endpoint.startswith("/api/"):
+        return f"{BASE_URL}{endpoint}"
+    ep = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+    return f"{API_BASE}{ep}"
+
+
+async def maybe_await(result: Any) -> Any:
+    """Await awaitable results cleanly while preserving sync-mock compatibility."""
+    if inspect.isawaitable(result):
+        return await result
+    return result
 
 def build_request_headers(
     method: str,
@@ -93,4 +115,27 @@ def build_request_headers(
         headers.setdefault("sec-fetch-site", "same-origin")
         headers["cookie"] = sess.cookie_string
 
+    return headers
+
+
+def build_html_headers(
+    sess: Any = None,
+    authenticated: bool = True,
+) -> Dict[str, str]:
+    """Build coherent browser navigation headers for fetching raw Instagram HTML."""
+    fp = getattr(sess, "fingerprint", None) if sess else None
+    ua = (
+        (fp.user_agent if fp else getattr(sess, "user_agent", ""))
+        or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+    )
+    headers: Dict[str, str] = {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "user-agent": ua,
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none" if not authenticated else "same-origin",
+    }
+    if authenticated and sess and getattr(sess, "cookie_string", ""):
+        headers["cookie"] = sess.cookie_string
     return headers

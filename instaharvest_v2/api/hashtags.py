@@ -100,6 +100,38 @@ class HashtagsAPI:
             rate_category="get_default",
         )
 
+    def get_sections(
+        self,
+        hashtag: str,
+        tab: str = "top",
+        max_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch hashtag section feed (`top`, `recent`, or `clips`).
+
+        Args:
+            hashtag: Hashtag name (with or without `#`)
+            tab: Section tab ("top" | "recent" | "clips")
+            max_id: Pagination cursor
+        """
+        tag = hashtag.lstrip("#").strip()
+        payload: Dict[str, Any] = {"tab": tab}
+        if max_id:
+            payload["max_id"] = max_id
+        return self._client.post(
+            f"/tags/{tag}/sections/",
+            data=payload,
+            rate_category="get_feed",
+        )
+
+    def get_recent_media(
+        self,
+        hashtag: str,
+        max_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch recent hashtag media sections."""
+        return self.get_sections(hashtag, tab="recent", max_id=max_id)
+
     def get_posts(self, hashtag: str) -> Dict[str, Any]:
         """
         Hashtag posts (top + recent) — raw.
@@ -110,11 +142,7 @@ class HashtagsAPI:
         Returns:
             Posts (in sections format)
         """
-        return self._client.post(
-            f"/tags/{hashtag}/sections/",
-            data={"tab": "top"},
-            rate_category="get_feed",
-        )
+        return self.get_sections(hashtag, tab="top")
 
     # ─── FOLLOW / UNFOLLOW ──────────────────────────────────
 

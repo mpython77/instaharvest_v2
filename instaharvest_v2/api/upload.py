@@ -549,3 +549,35 @@ class UploadAPI:
             data=configure_data,
             rate_category="post_default",
         )
+
+    # ─── CONVENIENCE ALIASES ────────────────────────────────
+
+    def photo(
+        self,
+        path: Optional[str] = None,
+        caption: str = "",
+        image_data: Optional[bytes] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Alias for `post_photo` matching SchedulerAPI / ABTestAPI contract."""
+        return self.post_photo(image_path=path, image_data=image_data, caption=caption, **kwargs)
+
+    def video(
+        self,
+        path: Optional[str] = None,
+        caption: str = "",
+        video_data: Optional[bytes] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Alias for `post_video` matching SchedulerAPI / ABTestAPI contract."""
+        return self.post_video(video_path=path, video_data=video_data, caption=caption, **kwargs)
+
+    def reel(
+        self,
+        path: Optional[str] = None,
+        caption: str = "",
+        video_data: Optional[bytes] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Alias for `post_reel` matching SchedulerAPI contract."""
+        return self.post_reel(video_path=path, video_data=video_data, caption=caption, **kwargs)

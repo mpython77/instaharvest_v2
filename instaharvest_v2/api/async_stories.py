@@ -605,6 +605,33 @@ class AsyncStoriesAPI:
             rate_category="get_default",
         )
 
+    async def get_highlights(self, user_id: int | str) -> Dict[str, Any]:
+        """Alias for `get_highlights_tray` matching AsyncBulkDownloadAPI contract."""
+        return await self.get_highlights_tray(user_id)
+
+    async def upload_photo(
+        self,
+        path: Optional[str] = None,
+        image_data: Optional[bytes] = None,
+    ) -> Dict[str, Any]:
+        """Upload a photo story via AsyncUploadAPI."""
+        from .async_upload import AsyncUploadAPI
+        return await AsyncUploadAPI(self._client).post_story_photo(
+            image_path=path, image_data=image_data
+        )
+
+    async def upload_video(
+        self,
+        path: Optional[str] = None,
+        video_data: Optional[bytes] = None,
+        duration: float = 0,
+    ) -> Dict[str, Any]:
+        """Upload a video story via AsyncUploadAPI."""
+        from .async_upload import AsyncUploadAPI
+        return await AsyncUploadAPI(self._client).post_story_video(
+            video_path=path, video_data=video_data, duration=duration
+        )
+
     async def get_highlights_parsed(self, user_id: int | str) -> List[Dict[str, Any]]:
         """
         Get highlights list in structured format.
@@ -879,7 +906,7 @@ class AsyncStoriesAPI:
         if not include_highlights:
             return result
 
-        _time.sleep(delay)
+        await asyncio.sleep(delay)
 
         # 2. Highlights list
         try:
@@ -890,7 +917,7 @@ class AsyncStoriesAPI:
                 if include_highlight_items:
                     # 3. Fetch items for each highlight
                     for hl in highlights:
-                        _time.sleep(delay)
+                        await asyncio.sleep(delay)
                         try:
                             items = await self.get_highlight_items_parsed(hl["id"])
                             hl["items"] = items.get("items", []) if items else []

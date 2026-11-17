@@ -35,38 +35,54 @@ class AccountAPI:
         """
         try:
             sess = self._client.get_session()
-            # Method 1: web_profile_info with username (most reliable)
             if sess and sess.ds_user_id:
-                # Try fetching via web_profile_info
-                try:
-                    data = self._client.get(
-                        "/users/web_profile_info/",
-                        params={"username": getattr(sess, '_username', '')},
-                        rate_category="get_profile",
-                    )
-                    user_data = data.get("data", {}).get("user", {})
-                    if user_data and user_data.get("username"):
-                        return user_data
-                except Exception as e:
-                    logger.debug(f"web_profile_info failed: {e}")
+                known_username = getattr(sess, "username", "") or getattr(sess, "_username", "")
+                # Method 1: web_profile_info with username (if known)
+                if known_username:
+                    try:
+                        data = self._client.get(
+                            "/users/web_profile_info/",
+                            params={"username": known_username},
+                            rate_category="get_profile",
+                        )
+                        user_data = data.get("data", {}).get("user", {})
+                        if user_data and user_data.get("username"):
+                            return user_data
+                    except Exception as e:
+                        logger.debug(f"web_profile_info failed: {e}")
 
-                # Method 2: REST /accounts/current_user/
+                # Method 2: 2026 Web SSR PolarisViewer extraction (zero rate-limit impact)
+                if hasattr(self._client, "get_html"):
+                    try:
+                        from ..parsers import apply_web_html_metadata
+                        html = self._client.get_html("https://www.instagram.com/", authenticated=True)
+                        viewer = apply_web_html_metadata(html, sess=sess)
+                        if viewer:
+                            return viewer
+                    except Exception as e:
+                        logger.debug(f"PolarisViewer HTML extraction failed: {e}")
+
+                # Method 3: REST /accounts/current_user/
                 try:
                     data = self._client.get(
                         "/accounts/current_user/?edit=true",
                         rate_category="get_profile",
                     )
-                    return data.get("user", data)
+                    user_data = data.get("user", data)
+                    if isinstance(user_data, dict) and (user_data.get("username") or user_data.get("pk")):
+                        return user_data
                 except Exception as e:
                     logger.debug(f"current_user endpoint failed: {e}")
 
-                # Method 3: user info by ID
+                # Method 4: user info by ID
                 try:
                     data = self._client.get(
                         f"/users/{sess.ds_user_id}/info/",
                         rate_category="get_profile",
                     )
-                    return data.get("user", data)
+                    user_data = data.get("user", data)
+                    if isinstance(user_data, dict) and (user_data.get("username") or user_data.get("pk")):
+                        return user_data
                 except Exception as e:
                     logger.debug(f"user info by ID failed: {e}")
 

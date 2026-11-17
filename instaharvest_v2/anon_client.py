@@ -429,13 +429,14 @@ class AnonClient:
 
     def get_profile_html(self, username: str) -> Optional[Dict]:
         """
-        Parse Instagram profile page HTML for embedded JSON data.
+        Parse Instagram profile page HTML for embedded JSON/SSR data and meta tags.
 
         Looks for:
         1. window._sharedData = {...}
         2. window.__additionalDataLoaded(..., {...})
-        3. <script type="application/ld+json">
-        4. Meta tags (og:title, og:description, og:image)
+        3. 2025/2026 SSR `data-sjs` (`xig_user_by_username` + timeline edges)
+        4. <script type="application/ld+json">
+        5. Meta tags (og:title, og:description, og:image)
         """
         url = f"https://www.instagram.com/{username}/"
         try:
@@ -443,94 +444,43 @@ class AnonClient:
         except StrategyFailed:
             return None
 
-        if not html:
+        return _parsers.parse_profile_html(html, username=username)
+
+    def get_post_html(self, shortcode: str) -> Optional[Dict]:
+        """
+        Parse single post/reel page HTML (`/p/{shortcode}/`) for SSR `xig_polaris_media` JSON.
+
+        Works without login cookies and extracts likes, comments_count, video_url,
+        HD images, caption, owner, and preview comments.
+        """
+        url = f"https://www.instagram.com/p/{shortcode}/"
+        try:
+            html = self._request(url, "html_parse", parse_json=False)
+        except StrategyFailed:
             return None
 
-        # Check for login redirect
-        if '"LoginAndSignupPage"' in html or "login/?next=" in html:
-            logger.debug("[Anon] HTML parse: login redirect detected")
+        return _parsers.parse_polaris_media_sjs(html, shortcode=shortcode)
+
+    def get_hashtag_html(self, tag_name: str) -> Optional[Dict]:
+        """Parse `/explore/tags/{tag}/` SSR HTML for public hashtag posts."""
+        tag = tag_name.lstrip("#").strip().lower()
+        url = f"https://www.instagram.com/explore/tags/{tag}/"
+        try:
+            html = self._request(url, "html_parse", parse_json=False)
+        except StrategyFailed:
             return None
 
-        result = {}
+        return _parsers.parse_hashtag_sjs(html, tag_name=tag)
 
-        # Method 1: window._sharedData
-        shared_data_match = re.search(
-            r'window\._sharedData\s*=\s*({.+?})\s*;</script>',
-            html, re.DOTALL
-        )
-        if shared_data_match:
-            try:
-                shared = json.loads(shared_data_match.group(1))
-                user_data = (
-                    shared.get("entry_data", {})
-                    .get("ProfilePage", [{}])[0]
-                    .get("graphql", {})
-                    .get("user", {})
-                )
-                if user_data:
-                    result = self._parse_graphql_user(user_data)
-            except (json.JSONDecodeError, IndexError, KeyError):
-                pass
+    def get_location_html(self, location_id: int | str) -> Optional[Dict]:
+        """Parse `/explore/locations/{id}/` SSR HTML for location info and posts."""
+        url = f"https://www.instagram.com/explore/locations/{location_id}/"
+        try:
+            html = self._request(url, "html_parse", parse_json=False)
+        except StrategyFailed:
+            return None
 
-        # Method 2: window.__additionalDataLoaded
-        if not result:
-            additional_match = re.search(
-                r'window\.__additionalDataLoaded\s*\(\s*[\'"].*?[\'"]\s*,\s*({.+?})\s*\)\s*;',
-                html, re.DOTALL
-            )
-            if additional_match:
-                try:
-                    data = json.loads(additional_match.group(1))
-                    user_data = data.get("graphql", {}).get("user", {})
-                    if not user_data:
-                        user_data = data.get("user", {})
-                    if user_data:
-                        result = self._parse_graphql_user(user_data)
-                except (json.JSONDecodeError, KeyError):
-                    pass
-
-        # Method 3: JSON-LD schema
-        if not result:
-            ld_match = re.search(
-                r'<script type="application/ld\+json">\s*({.+?})\s*</script>',
-                html, re.DOTALL
-            )
-            if ld_match:
-                try:
-                    ld = json.loads(ld_match.group(1))
-                    result = {
-                        "username": ld.get("alternateName", "").lstrip("@"),
-                        "full_name": ld.get("name", ""),
-                        "biography": ld.get("description", ""),
-                        "profile_pic_url": ld.get("image", ""),
-                        "url": ld.get("url", ""),
-                    }
-                except json.JSONDecodeError:
-                    pass
-
-        # Method 4: Meta tags fallback
-        if not result:
-            result = self._parse_meta_tags(html)
-
-        # ── ENRICHMENT: always try to fill missing counts from meta tags ──
-        # Methods 1-3 may return a result without followers/following/posts
-        # Meta tags often have these in the description text
-        if result:
-            meta_data = self._parse_meta_tags(html)
-            # Fill in missing counts
-            for key in ("followers", "following", "posts_count"):
-                if not result.get(key) and meta_data.get(key):
-                    result[key] = meta_data[key]
-            # Fill in missing fields
-            for key in ("full_name", "biography", "profile_pic_url", "is_verified", "is_private"):
-                if not result.get(key) and meta_data.get(key):
-                    result[key] = meta_data[key]
-
-        if result:
-            result["_strategy"] = "html_parse"
-            result["_username"] = username
-
-        return result if result else None
+        return _parsers.parse_location_sjs(html, location_id=location_id)
 
     def _parse_meta_tags(self, html: str) -> Dict:
         """Delegate to parsers.parse_meta_tags."""
@@ -554,42 +504,44 @@ class AnonClient:
 
     def get_embed_data(self, shortcode: str) -> Optional[Dict]:
         """
-        Get post data from embed endpoint.
+        Get post data from embed endpoint, falling back to post SSR HTML when incomplete.
         Works without cookies — separate rate limits.
         """
         url = EMBED_URL.format(shortcode=shortcode)
+        html = None
         try:
             html = self._request(url, "embed", parse_json=False)
         except StrategyFailed:
-            return None
-
-        if not html:
-            return None
+            html = None
 
         result = {}
+        if html:
+            # Extract JSON from embed HTML
+            media_match = re.search(
+                r'window\.__additionalDataLoaded\s*\(\s*[\'"]extra[\'"]\s*,\s*({.+?})\s*\)',
+                html, re.DOTALL
+            )
+            if media_match:
+                try:
+                    data = json.loads(media_match.group(1))
+                    shortcode_media = data.get("shortcode_media", {})
+                    if shortcode_media:
+                        result = self._parse_embed_media(shortcode_media)
+                except json.JSONDecodeError:
+                    pass
 
-        # Extract JSON from embed HTML
-        # Look for media data in embedded script
-        media_match = re.search(
-            r'window\.__additionalDataLoaded\s*\(\s*[\'"]extra[\'"]\s*,\s*({.+?})\s*\)',
-            html, re.DOTALL
-        )
-        if media_match:
-            try:
-                data = json.loads(media_match.group(1))
-                shortcode_media = data.get("shortcode_media", {})
-                if shortcode_media:
-                    result = self._parse_embed_media(shortcode_media)
-            except json.JSONDecodeError:
-                pass
+            # Fallback: parse embed HTML directly
+            if not result:
+                result = self._parse_embed_html(html, shortcode)
 
-        # Fallback: parse embed HTML directly
-        if not result:
-            result = self._parse_embed_html(html, shortcode)
+            if result:
+                result["_strategy"] = "embed"
+                result["shortcode"] = shortcode
 
-        if result:
-            result["_strategy"] = "embed"
-            result["shortcode"] = shortcode
+        if _parsers.needs_post_html_fallback(result):
+            html_post = self.get_post_html(shortcode)
+            if isinstance(html_post, dict) and (html_post.get("pk") or html_post.get("shortcode")):
+                return html_post
 
         return result if result else None
 

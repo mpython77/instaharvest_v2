@@ -40,25 +40,38 @@ class LocationAPI:
         self,
         location_id: int | str,
         max_id: Optional[str] = None,
+        tab: str = "recent",
     ) -> Dict[str, Any]:
         """
         Get posts by location (top + recent).
 
+        Uses POST /api/v1/locations/{location_id}/sections/ (current Instagram
+        web behavior; GET returns HTTP 405) with GET fallback if needed.
+
         Args:
             location_id: Location PK
             max_id: Pagination cursor
+            tab: Feed tab ("recent" or "ranked")
 
         Returns:
             dict: {sections, next_max_id, more_available, ...}
         """
-        params = {}
+        payload: Dict[str, Any] = {"tab": tab}
         if max_id:
-            params["max_id"] = max_id
-        return self._client.get(
-            f"/locations/{location_id}/sections/",
-            params=params if params else None,
-            rate_category="get_feed",
-        )
+            payload["max_id"] = max_id
+        try:
+            return self._client.post(
+                f"/locations/{location_id}/sections/",
+                data=payload,
+                rate_category="get_feed",
+            )
+        except Exception:
+            params = {"max_id": max_id} if max_id else None
+            return self._client.get(
+                f"/locations/{location_id}/sections/",
+                params=params,
+                rate_category="get_feed",
+            )
 
     def search(self, query: str, lat: float = None, lng: float = None) -> Dict[str, Any]:
         """

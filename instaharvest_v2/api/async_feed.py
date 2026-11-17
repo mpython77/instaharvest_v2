@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncio
 from ..async_client import AsyncHttpClient
+from ..http_utils import maybe_await as _maybe_await
 from ..models.media import Media as MediaModel
 
 logger = logging.getLogger("instaharvest_v2")
@@ -101,7 +102,7 @@ class AsyncFeedAPI:
                 break
 
             if page > 1:
-                time.sleep(delay)
+                await asyncio.sleep(delay)
 
         return all_posts[:max_posts]
 
@@ -131,7 +132,9 @@ class AsyncFeedAPI:
         # Strategy 1: GraphQL v2 (preferred)
         if self._graphql:
             try:
-                return self._graphql.get_timeline_v2(count=count, after=cursor)
+                return await _maybe_await(
+                    self._graphql.get_timeline_v2(count=count, after=cursor)
+                )
             except Exception as e:
                 logger.debug(f"[Feed] GraphQL timeline failed: {e}, trying REST...")
 
@@ -190,7 +193,7 @@ class AsyncFeedAPI:
                 break
 
             cursor = result["end_cursor"]
-            time.sleep(delay)
+            await asyncio.sleep(delay)
 
         return all_posts[:max_posts]
 
@@ -220,7 +223,9 @@ class AsyncFeedAPI:
         # Strategy 1: GraphQL v2
         if self._graphql:
             try:
-                return self._graphql.get_liked_v2(count=count, after=cursor)
+                return await _maybe_await(
+                    self._graphql.get_liked_v2(count=count, after=cursor)
+                )
             except Exception as e:
                 logger.debug(f"[Feed] GraphQL liked failed: {e}, trying legacy...")
 
@@ -268,13 +273,45 @@ class AsyncFeedAPI:
             dict: {posts, has_next, end_cursor, count}
         """
         # Strategy 1: GraphQL v2
+        gql_res = None
         if self._graphql:
             try:
-                return self._graphql.get_saved_v2(count=count, after=cursor)
+                gql_res = await _maybe_await(
+                    self._graphql.get_saved_v2(count=count, after=cursor)
+                )
+                if isinstance(gql_res, dict) and gql_res.get("posts"):
+                    return gql_res
             except Exception as e:
-                logger.debug(f"[Feed] GraphQL saved failed: {e}, trying legacy...")
+                logger.debug(f"[Feed] GraphQL saved failed: {e}, trying REST...")
 
-        # Strategy 2: Legacy query_hash
+        # Strategy 2: REST /feed/saved/posts/ (active on 2026 web)
+        try:
+            params: Dict[str, Any] = {"count": str(count)}
+            if cursor:
+                params["max_id"] = cursor
+            rest_data = await self._client.get(
+                "/feed/saved/posts/",
+                params=params,
+                rate_category="get_feed",
+            )
+            if isinstance(rest_data, dict) and isinstance(rest_data.get("items"), list):
+                items = [
+                    it.get("media", it) if isinstance(it, dict) else it
+                    for it in rest_data["items"]
+                ]
+                return {
+                    "posts": items,
+                    "has_next": bool(rest_data.get("more_available", False)),
+                    "end_cursor": rest_data.get("next_max_id"),
+                    "count": len(items),
+                }
+        except Exception as e:
+            logger.debug(f"[Feed] REST saved posts failed: {e}, trying legacy...")
+
+        if isinstance(gql_res, dict):
+            return gql_res
+
+        # Strategy 3: Legacy query_hash
         try:
             sess = self._client.get_session()
             variables = {"id": str(sess.ds_user_id) if sess else "", "first": count}
@@ -322,8 +359,10 @@ class AsyncFeedAPI:
         # Strategy 1: GraphQL v2
         if self._graphql:
             try:
-                return self._graphql.get_tag_feed_v2(
-                    hashtag=hashtag, count=count, after=cursor
+                return await _maybe_await(
+                    self._graphql.get_tag_feed_v2(
+                        hashtag=hashtag, count=count, after=cursor
+                    )
                 )
             except Exception as e:
                 logger.debug(f"[Feed] GraphQL tag feed failed: {e}, trying REST...")
@@ -396,7 +435,9 @@ class AsyncFeedAPI:
         # Strategy 1: GraphQL v2
         if self._graphql:
             try:
-                return self._graphql.get_reels_trending_v2(count=count, after=cursor)
+                return await _maybe_await(
+                    self._graphql.get_reels_trending_v2(count=count, after=cursor)
+                )
             except Exception as e:
                 logger.debug(f"[Feed] GraphQL reels failed: {e}, trying REST...")
 

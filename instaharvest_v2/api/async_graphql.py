@@ -539,7 +539,7 @@ class AsyncGraphQLAPI:
                 break
 
             cursor = result["end_cursor"]
-            time.sleep(0.5)  # Anti-rate-limit delay
+            await asyncio.sleep(0.5)  # Anti-rate-limit delay
 
         return all_posts[:max_count]
 

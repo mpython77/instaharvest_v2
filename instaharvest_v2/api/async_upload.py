@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncio
 from ..async_client import AsyncHttpClient
+from ..http_utils import maybe_await
 
 # Upload URL — web session only works on www.instagram.com
 UPLOAD_URL = "https://www.instagram.com"
@@ -74,11 +75,13 @@ class AsyncUploadAPI:
             "offset": "0",
         }
 
-        result = self._client.upload_raw(
-            url=upload_url,
-            data=image_data,
-            headers=headers,
-            rate_category="post_default",
+        result = await maybe_await(
+            self._client.upload_raw(
+                url=upload_url,
+                data=image_data,
+                headers=headers,
+                rate_category="post_default",
+            )
         )
         return result
 
@@ -130,11 +133,13 @@ class AsyncUploadAPI:
             "offset": "0",
         }
 
-        result = self._client.upload_raw(
-            url=upload_url,
-            data=video_data,
-            headers=headers,
-            rate_category="post_default",
+        result = await maybe_await(
+            self._client.upload_raw(
+                url=upload_url,
+                data=video_data,
+                headers=headers,
+                rate_category="post_default",
+            )
         )
         return result
 
@@ -178,7 +183,7 @@ class AsyncUploadAPI:
             return upload_result
 
         # 2. Configure
-        time.sleep(1)
+        await asyncio.sleep(1)
 
         configure_data = {
             "upload_id": upload_id,
@@ -260,7 +265,7 @@ class AsyncUploadAPI:
             await self._upload_photo(thumbnail_data, upload_id)
 
         # 3. Configure
-        time.sleep(3)  # Video processing for
+        await asyncio.sleep(3)  # Video processing delay
 
         configure_data = {
             "upload_id": upload_id,
@@ -310,7 +315,7 @@ class AsyncUploadAPI:
         upload_id = await self._generate_upload_id()
         await self._upload_photo(image_data, upload_id)
 
-        time.sleep(1)
+        await asyncio.sleep(1)
 
         return await self._client.post(
             "/media/configure_to_story/",
@@ -348,7 +353,7 @@ class AsyncUploadAPI:
         upload_id = await self._generate_upload_id()
         await self._upload_video(video_data, upload_id, duration)
 
-        time.sleep(3)
+        await asyncio.sleep(3)
 
         return await self._client.post(
             "/media/configure_to_story/?video=1",
@@ -407,7 +412,7 @@ class AsyncUploadAPI:
         if thumbnail_data:
             await self._upload_photo(thumbnail_data, upload_id)
 
-        time.sleep(3)
+        await asyncio.sleep(3)
 
         return await self._client.post(
             "/media/configure_to_clips/",
@@ -482,8 +487,8 @@ class AsyncUploadAPI:
                 image_data = img
 
             upload_id = await self._generate_upload_id()
-            # Unique ID per upload — 1ms apart
-            time.sleep(0.01)
+            # Unique ID per upload — 10ms apart
+            await asyncio.sleep(0.01)
 
             name = f"fb_uploader_{upload_id}"
             upload_url = f"{UPLOAD_URL}/rupload_igphoto/{name}"
@@ -503,11 +508,13 @@ class AsyncUploadAPI:
                 "offset": "0",
             }
 
-            result = self._client.upload_raw(
-                url=upload_url,
-                data=image_data,
-                headers=headers,
-                rate_category="post_default",
+            result = await maybe_await(
+                self._client.upload_raw(
+                    url=upload_url,
+                    data=image_data,
+                    headers=headers,
+                    rate_category="post_default",
+                )
             )
 
             if result.get("status") != "ok":
@@ -523,7 +530,7 @@ class AsyncUploadAPI:
             })
 
         # 2. Configure sidecar
-        time.sleep(1)
+        await asyncio.sleep(1)
 
         configure_data = {
             "caption": caption,
@@ -550,3 +557,35 @@ class AsyncUploadAPI:
             data=configure_data,
             rate_category="post_default",
         )
+
+    # ─── CONVENIENCE ALIASES ────────────────────────────────
+
+    async def photo(
+        self,
+        path: Optional[str] = None,
+        caption: str = "",
+        image_data: Optional[bytes] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Alias for `post_photo` matching AsyncSchedulerAPI / AsyncABTestAPI contract."""
+        return await self.post_photo(image_path=path, image_data=image_data, caption=caption, **kwargs)
+
+    async def video(
+        self,
+        path: Optional[str] = None,
+        caption: str = "",
+        video_data: Optional[bytes] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Alias for `post_video` matching AsyncSchedulerAPI / AsyncABTestAPI contract."""
+        return await self.post_video(video_path=path, video_data=video_data, caption=caption, **kwargs)
+
+    async def reel(
+        self,
+        path: Optional[str] = None,
+        caption: str = "",
+        video_data: Optional[bytes] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Alias for `post_reel` matching AsyncSchedulerAPI contract."""
+        return await self.post_reel(video_path=path, video_data=video_data, caption=caption, **kwargs)

@@ -123,12 +123,9 @@ class AsyncDiscoverAPI:
         data = await self.get_suggested_users_raw(user_id=user_id, doc_id=doc_id)
 
         # Response structure: data.xdt_api__v1__discover__chaining.users[]
-        users_data = (
-            data
-            .get("data", {})
-            .get("xdt_api__v1__discover__chaining", {})
-            .get("users", [])
-        )
+        data_dict = (data or {}).get("data") or {}
+        chaining = data_dict.get("xdt_api__v1__discover__chaining") or {}
+        users_data = chaining.get("users") or []
 
         users: List[UserShort] = []
         for user_dict in users_data:

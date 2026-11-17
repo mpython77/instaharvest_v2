@@ -96,6 +96,7 @@ class AsyncFbDtsgProvider:
     # Rollout hash / build hash (x-instagram-ajax)
     _RE_ROLLOUT = re.compile(r'"rollout_hash"\s*:\s*"([a-f0-9]+)"')
     _RE_BUILD = re.compile(r'"buildHash"\s*:\s*"([a-f0-9]+)"')
+    _RE_CONSISTENCY_REV = re.compile(r'"consistency"\s*:\s*\{\s*"rev"\s*:\s*(\d+)')
 
     # x-ig-www-claim from shared data
     _RE_CLAIM = re.compile(r'"claim"\s*:\s*"([^"]*)"')
@@ -297,9 +298,13 @@ class AsyncFbDtsgProvider:
         if match:
             result.rollout_hash = match.group(1)
         else:
-            match = self._RE_BUILD.search(html)
+            match = self._RE_CONSISTENCY_REV.search(html)
             if match:
                 result.rollout_hash = match.group(1)
+            else:
+                match = self._RE_BUILD.search(html)
+                if match:
+                    result.rollout_hash = match.group(1)
 
         # ─── Claim ───────────────────────────────────────────
         if not result.claim:

@@ -32,19 +32,44 @@ class UsersAPI:
         """
         Get full profile by username.
 
+        Tries `/users/web_profile_info/` first, then falls back to public
+        SSR `data-sjs` HTML parsing when Instagram retires/blocks the REST path.
+
         Args:
             username: Instagram username (without @)
 
         Returns:
             User model (followers, bio, post count, etc.)
         """
-        data = self._client.get(
-            "/users/web_profile_info/",
-            params={"username": username},
-            rate_category="get_profile",
-        )
-        if "data" in data and "user" in data["data"]:
-            return User.from_web_profile(data["data"]["user"])
+        clean_username = username.lstrip("@").strip()
+        try:
+            data = self._client.get(
+                "/users/web_profile_info/",
+                params={"username": clean_username},
+                rate_category="get_profile",
+            )
+            if isinstance(data, dict) and "data" in data and "user" in data["data"]:
+                return User.from_web_profile(data["data"]["user"])
+            if isinstance(data, dict) and data.get("username"):
+                return User.from_web_profile(data)
+        except Exception as primary_err:
+            if hasattr(self._client, "get_html"):
+                try:
+                    from ..parsers import parse_profile_html
+                    html = self._client.get_html(
+                        f"https://www.instagram.com/{clean_username}/",
+                        authenticated=False,
+                    )
+                    if isinstance(html, str) and html:
+                        parsed = parse_profile_html(html, username=clean_username)
+                        if isinstance(parsed, dict) and (
+                            parsed.get("username") or parsed.get("user_id") or parsed.get("pk")
+                        ):
+                            return User.from_ssr_dict(parsed)
+                except Exception as ssr_err:
+                    logger.debug(f"SSR profile fallback failed for {clean_username}: {ssr_err}")
+            raise primary_err
+
         return User.from_web_profile(data)
 
     def get_by_id(self, user_id: int | str) -> User:
@@ -60,18 +85,22 @@ class UsersAPI:
         import json as _json
         # GraphQL GET — web compatible, same as followers/following queries
         variables = {"id": str(user_id), "render_surface": "PROFILE"}
-        data = self._client.get(
-            "/graphql/query/",
-            params={
-                "query_hash": "c9100bf9110dd6361671f113dd02e7d6",
-                "variables": _json.dumps(variables),
-            },
-            rate_category="get_profile",
-            full_url="https://www.instagram.com/graphql/query/",
-        )
-        user_data = data.get("data", {}).get("user", {})
-        if isinstance(user_data, dict) and user_data.get("username"):
-            return User.from_web_profile(user_data)
+        try:
+            data = self._client.get(
+                "/graphql/query/",
+                params={
+                    "query_hash": "c9100bf9110dd6361671f113dd02e7d6",
+                    "variables": _json.dumps(variables),
+                },
+                rate_category="get_profile",
+                full_url="https://www.instagram.com/graphql/query/",
+            )
+            user_data = data.get("data", {}).get("user", {}) if isinstance(data, dict) else {}
+            if isinstance(user_data, dict) and user_data.get("username"):
+                return User.from_web_profile(user_data)
+        except Exception as e:
+            logger.debug(f"GraphQL get_by_id failed: {e}")
+
         # Fallback: try direct REST
         try:
             data2 = self._client.get(

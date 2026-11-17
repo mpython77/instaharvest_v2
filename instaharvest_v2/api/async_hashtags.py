@@ -102,6 +102,38 @@ class AsyncHashtagsAPI:
             rate_category="get_default",
         )
 
+    async def get_sections(
+        self,
+        hashtag: str,
+        tab: str = "top",
+        max_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch hashtag section feed (`top`, `recent`, or `clips`).
+
+        Args:
+            hashtag: Hashtag name (with or without `#`)
+            tab: Section tab ("top" | "recent" | "clips")
+            max_id: Pagination cursor
+        """
+        tag = hashtag.lstrip("#").strip()
+        payload: Dict[str, Any] = {"tab": tab}
+        if max_id:
+            payload["max_id"] = max_id
+        return await self._client.post(
+            f"/tags/{tag}/sections/",
+            data=payload,
+            rate_category="get_feed",
+        )
+
+    async def get_recent_media(
+        self,
+        hashtag: str,
+        max_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch recent hashtag media sections."""
+        return await self.get_sections(hashtag, tab="recent", max_id=max_id)
+
     async def get_posts(self, hashtag: str) -> Dict[str, Any]:
         """
         Hashtag posts (top + recent) — raw.
@@ -112,11 +144,7 @@ class AsyncHashtagsAPI:
         Returns:
             Posts (in sections format)
         """
-        return await self._client.post(
-            f"/tags/{hashtag}/sections/",
-            data={"tab": "top"},
-            rate_category="get_feed",
-        )
+        return await self.get_sections(hashtag, tab="top")
 
     # ─── FOLLOW / UNFOLLOW ──────────────────────────────────
 

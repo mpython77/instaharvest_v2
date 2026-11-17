@@ -43,6 +43,10 @@ session.json
 session_*.json
 saved_session.json
 device_cookies.json
+*cookies*.json
+
+# Generated knowledge graph cache
+graphify-out/
 anon_profiles.json
 anon_comments_dump.json
 all_comments.json

@@ -24,6 +24,8 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
+from ..http_utils import maybe_await
+
 logger = logging.getLogger("instaharvest_v2.analytics")
 
 
@@ -76,7 +78,7 @@ class AsyncAnalyticsAPI:
                 - posts_analyzed: int
                 - rating: str (excellent/good/average/low)
         """
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         followers = getattr(user, "followers", 0) or getattr(user, "follower_count", 0)
         if not followers:
             followers = (user.get("followers", 0) if isinstance(user, dict) else 0) or 1
@@ -156,7 +158,7 @@ class AsyncAnalyticsAPI:
                 - hourly_breakdown: dict {hour: {posts, avg_likes, avg_comments}}
                 - daily_breakdown: dict {day: {posts, avg_likes, avg_comments}}
         """
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
         followers = getattr(user, "followers", 0) or getattr(user, "follower_count", 0) or 1
 
@@ -267,7 +269,7 @@ class AsyncAnalyticsAPI:
                 - top_hashtags: most used hashtags
                 - posting_frequency: posts per week
         """
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
         followers = getattr(user, "followers", 0) or getattr(user, "follower_count", 0) or 1
 
@@ -377,7 +379,7 @@ class AsyncAnalyticsAPI:
         content = await self.content_analysis(username, post_count)
 
         # Profile info
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         profile = {
             "username": getattr(user, "username", username),
             "full_name": getattr(user, "full_name", ""),
@@ -432,7 +434,7 @@ class AsyncAnalyticsAPI:
             try:
                 eng = await self.engagement_rate(username, post_count)
                 content = await self.content_analysis(username, post_count)
-                user = self._users.get_by_username(username)
+                user = await maybe_await(self._users.get_by_username(username))
 
                 accounts.append({
                     "username": username,
@@ -482,9 +484,11 @@ class AsyncAnalyticsAPI:
         cursor = None
         while len(posts) < count:
             try:
-                result = self._client.request(
-                    "GET", f"/api/v1/feed/user/{user_id}/",
-                    params={"count": str(min(count - len(posts), 33)), **({"max_id": cursor} if cursor else {})},
+                result = await maybe_await(
+                    self._client.request(
+                        "GET", f"/api/v1/feed/user/{user_id}/",
+                        params={"count": str(min(count - len(posts), 33)), **({"max_id": cursor} if cursor else {})},
+                    )
                 )
             except Exception as e:
                 logger.debug(f"Fetch posts error: {e}")

@@ -24,11 +24,14 @@ Usage:
     ig.automation.watch_stories("cristiano")
 """
 
+import asyncio
 import logging
 import random
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Union
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.automation")
 
@@ -181,7 +184,7 @@ class AsyncAutomationAPI:
                 # Send DM
                 user_id = user.get("pk") if isinstance(user, dict) else None
                 if user_id:
-                    self._direct.send_text(user_id, message)
+                    await maybe_await(self._direct.send_text(user_id, message))
                     sent += 1
                     self._seen_users.add(username)
                     await self._log_action("dm", username, message[:50])
@@ -258,7 +261,7 @@ class AsyncAutomationAPI:
             comment_text = TemplateEngine.pick_and_render(templates, context)
 
             try:
-                self._media.comment(media_id, comment_text)
+                await maybe_await(self._media.comment(media_id, comment_text))
                 commented += 1
                 await self._log_action("comment", shortcode, comment_text[:50])
                 if on_progress:
@@ -306,7 +309,9 @@ class AsyncAutomationAPI:
         errors = 0
 
         try:
-            result = self._client.request("GET", "/api/v1/feed/timeline/", params={"count": str(count * 2)})
+            result = await maybe_await(
+                self._client.request("GET", "/api/v1/feed/timeline/", params={"count": str(count * 2)})
+            )
             items = result.get("feed_items", []) if result else []
         except Exception as e:
             return {"liked": 0, "error": str(e)}
@@ -323,7 +328,7 @@ class AsyncAutomationAPI:
                 continue
 
             try:
-                self._media.like(media_id)
+                await maybe_await(self._media.like(media_id))
                 liked += 1
                 await self._log_action("like", shortcode, "")
                 if on_progress:
@@ -378,7 +383,7 @@ class AsyncAutomationAPI:
                 continue
 
             try:
-                self._media.like(media_id)
+                await maybe_await(self._media.like(media_id))
                 liked += 1
                 await self._log_action("like", shortcode, f"#{tag}")
                 if on_progress:
@@ -426,7 +431,7 @@ class AsyncAutomationAPI:
             if not user_id:
                 return {"watched": 0, "error": f"User '{username}' not found"}
 
-            stories = self._stories.get_user_stories(user_id)
+            stories = await maybe_await(self._stories.get_user_stories(user_id))
             items = stories.get("items", []) if isinstance(stories, dict) else []
 
             # Mark as seen
@@ -435,7 +440,7 @@ class AsyncAutomationAPI:
                 story_id = item.get("pk") or item.get("id")
                 if story_id:
                     try:
-                        self._stories.mark_seen(story_id, user_id)
+                        await maybe_await(self._stories.mark_seen(story_id, user_id))
                         seen_count += 1
                         await self._smart_delay(limits, factor=0.3)
                     except Exception as e:
@@ -465,7 +470,9 @@ class AsyncAutomationAPI:
         cursor = None
         while True:
             try:
-                result = self._friendships.get_followers(user_id, count=50, after=cursor)
+                result = await maybe_await(
+                    self._friendships.get_followers(user_id, count=50, after=cursor)
+                )
                 for u in result.get("users", []):
                     followers.add(u.get("username", ""))
                 cursor = result.get("next_max_id")
@@ -478,7 +485,9 @@ class AsyncAutomationAPI:
     async def _users_get_safe(self, username: str) -> Dict:
         """Get user info safely, returning dict."""
         try:
-            user = self._client.request("GET", "/api/v1/users/web_profile_info/", params={"username": username})
+            user = await maybe_await(
+                self._client.request("GET", "/api/v1/users/web_profile_info/", params={"username": username})
+            )
             if isinstance(user, dict):
                 return user.get("data", {}).get("user", user)
             return {"username": username}
@@ -489,7 +498,9 @@ class AsyncAutomationAPI:
         """Get posts from hashtag."""
         posts = []
         try:
-            result = self._client.request("GET", f"/api/v1/tags/{tag}/sections/", params={"tab": "recent"})
+            result = await maybe_await(
+                self._client.request("GET", f"/api/v1/tags/{tag}/sections/", params={"tab": "recent"})
+            )
             if result and isinstance(result, dict):
                 for sec in result.get("sections", []):
                     for m in sec.get("layout_content", {}).get("medias", []):
@@ -506,7 +517,7 @@ class AsyncAutomationAPI:
         # 10% chance of a micro-break
         if random.random() < 0.1:
             base += random.uniform(20, 60)
-        time.sleep(base)
+        await asyncio.sleep(base)
 
     @staticmethod
     async def _should_stop(error: Exception, limits: AutomationLimits) -> bool:

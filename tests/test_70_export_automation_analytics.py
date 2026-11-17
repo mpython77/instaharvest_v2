@@ -461,20 +461,21 @@ class TestAsyncAutomationAPI:
         result = run(api._get_followers_set("12345"))
         assert "f1" in result
 
-    @patch("time.sleep")
+    @patch("asyncio.sleep", new_callable=AsyncMock)
     def test_smart_delay(self, mock_sleep):
         from instaharvest_v2.api.async_automation import AutomationLimits
         api, *_ = self._api()
         limits = AutomationLimits(min_delay=0.01, max_delay=0.02)
-        run(api._smart_delay(limits, factor=0.01))
-        mock_sleep.assert_called()
+        with patch("random.uniform", return_value=0.015), patch("random.random", return_value=0.5):
+            run(api._smart_delay(limits, factor=1.0))
+        mock_sleep.assert_any_await(0.015)
 
     def test_watch_stories_no_api(self):
         api, *_ = self._api(with_stories=False)
         result = run(api.watch_stories("testuser"))
         assert result["error"] == "StoriesAPI not available"
 
-    @patch("time.sleep")
+    @patch("asyncio.sleep", new_callable=AsyncMock)
     def test_watch_stories(self, mock_sleep):
         api, client, direct, media, friendships, stories = self._api()
         client.request.return_value = {"data": {"user": {"pk": 123}}}

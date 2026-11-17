@@ -15,7 +15,7 @@ Usage:
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from .async_client import AsyncHttpClient
 from .session_manager import SessionManager
@@ -30,40 +30,11 @@ from .retry import RetryConfig
 from .log_config import LogConfig, DebugLogger, set_debug_logger
 from .events import EventEmitter, EventType, EventData
 from .async_anon_client import AsyncAnonClient
-from .api.async_users import AsyncUsersAPI
-from .api.async_media import AsyncMediaAPI
-from .api.async_friendships import AsyncFriendshipsAPI
-from .api.async_feed import AsyncFeedAPI
-from .api.async_stories import AsyncStoriesAPI
-from .api.async_direct import AsyncDirectAPI
-from .api.async_search import AsyncSearchAPI
-from .api.async_upload import AsyncUploadAPI
-from .api.async_hashtags import AsyncHashtagsAPI
-from .api.async_insights import AsyncInsightsAPI
-from .api.async_account import AsyncAccountAPI
-from .api.async_notifications import AsyncNotificationsAPI
-from .api.async_graphql import AsyncGraphQLAPI
-from .api.async_location import AsyncLocationAPI
-from .api.async_collections import AsyncCollectionsAPI
-from .api.async_download import AsyncDownloadAPI
-from .api.async_auth import AsyncAuthAPI
-from .api.async_public import AsyncPublicAPI
-from .api.async_growth import AsyncGrowthAPI
-from .api.async_automation import AsyncAutomationAPI
-from .api.async_monitor import AsyncMonitorAPI
-from .api.async_bulk_download import AsyncBulkDownloadAPI
-from .api.async_hashtag_research import AsyncHashtagResearchAPI
-from .api.async_pipeline import AsyncPipelineAPI
-from .api.async_ai_suggest import AsyncAISuggestAPI
-from .api.async_audience import AsyncAudienceAPI
-from .api.async_comment_manager import AsyncCommentManagerAPI
-from .api.async_ab_test import AsyncABTestAPI
-from .api.async_public_data import AsyncPublicDataAPI
-from .api.async_export import AsyncExportAPI
-from .api.async_analytics import AsyncAnalyticsAPI
-from .api.async_scheduler import AsyncSchedulerAPI
-from .api.async_discover import AsyncDiscoverAPI
-from .batch import BatchAPI
+from ._lazy_modules import (
+    LAZY_ASYNC_API_MODULES,
+    LAZY_ASYNC_MODULE_NAMES,
+    resolve_lazy_module,
+)
 
 logger = logging.getLogger("instaharvest_v2.async")
 
@@ -188,67 +159,26 @@ class AsyncInstagram:
             event_emitter=self._events,
         )
 
-        # Async API modules
-        self.users = AsyncUsersAPI(self._client)
-        self.media = AsyncMediaAPI(self._client)
-        self.friendships = AsyncFriendshipsAPI(self._client)
-        self.graphql = AsyncGraphQLAPI(self._client)
-        self.feed = AsyncFeedAPI(self._client, graphql=self.graphql)
-        self.stories = AsyncStoriesAPI(self._client)
-        self.direct = AsyncDirectAPI(self._client)
-        self.search = AsyncSearchAPI(self._client)
-        self.upload = AsyncUploadAPI(self._client)
-        self.hashtags = AsyncHashtagsAPI(self._client)
-        self.insights = AsyncInsightsAPI(self._client)
-        self.account = AsyncAccountAPI(self._client)
-        self.notifications = AsyncNotificationsAPI(self._client)
-        self.location = AsyncLocationAPI(self._client)
-        self.collections = AsyncCollectionsAPI(self._client)
-        self.download = AsyncDownloadAPI(self._client)
-        self.auth = AsyncAuthAPI(self._client)
-        self.discover = AsyncDiscoverAPI(self._client)
-
-        # High-level API modules (composing low-level APIs)
-        self.export = AsyncExportAPI(
-            self._client, self.users, self.friendships, self.media, self.hashtags
-        )
-        self.analytics = AsyncAnalyticsAPI(
-            self._client, self.users, self.media, self.feed
-        )
-        self.scheduler = AsyncSchedulerAPI(self.upload, self.stories)
-        self.growth = AsyncGrowthAPI(self._client, self.users, self.friendships)
-        self.automation = AsyncAutomationAPI(
-            self._client, self.direct, self.media, self.friendships, self.stories
-        )
-        self.monitor = AsyncMonitorAPI(self._client, self.users, self.feed, self.stories)
-        self.bulk_download = AsyncBulkDownloadAPI(
-            self._client, self.download, self.users, self.stories
-        )
-        self.hashtag_research = AsyncHashtagResearchAPI(self._client, self.hashtags)
-        self.pipeline = AsyncPipelineAPI(
-            self._client, self.users, self.friendships, self.media
-        )
-        self.ai_suggest = AsyncAISuggestAPI(
-            self._client, self.users, self.hashtags, getattr(self, 'hashtag_research', None)
-        )
-        self.audience = AsyncAudienceAPI(self._client, self.users, self.friendships)
-        self.comment_manager = AsyncCommentManagerAPI(self._client, self.media)
-        self.ab_test = AsyncABTestAPI(
-            self._client, self.upload, self.media, self.analytics
-        )
-
-        # Batch operations (async power)
-        self.batch = BatchAPI(self)
-
-        # Anonymous public API (TRUE async with AsyncAnonClient)
+        # Anonymous public API client (modules are lazy-loaded via __getattr__)
         self._anon_client = AsyncAnonClient(
             anti_detect=self._anti_detect,
             proxy_manager=self._proxy_mgr,
         )
-        self.public = AsyncPublicAPI(self._anon_client)
-        
-        # Public Data analytics (Supermetrics-style, no login needed)
-        self.public_data = AsyncPublicDataAPI(self.public)
+
+    # ─── LAZY API MODULE LOADING ─────────────────────────────
+
+    def __getattr__(self, name: str) -> Any:
+        """Lazy attribute lookup for async API modules via LAZY_ASYNC_API_MODULES."""
+        return resolve_lazy_module(self, name, LAZY_ASYNC_API_MODULES)
+
+    def __dir__(self) -> List[str]:
+        """Include lazy-loaded async API modules in dir() output."""
+        return sorted(set(super().__dir__()) | set(LAZY_ASYNC_MODULE_NAMES))
+
+    @property
+    def loaded_modules(self) -> List[str]:
+        """Return names of async API modules currently loaded (already accessed)."""
+        return [name for name in LAZY_ASYNC_MODULE_NAMES if name in self.__dict__]
 
     # ─── EVENT SYSTEM ────────────────────────────────────────
 
@@ -566,17 +496,41 @@ class AsyncInstagram:
 
     async def warm_up(self) -> bool:
         """
-        Warm up the session by doing a basic request to instagram.com.
+        Warm up the session by loading instagram.com and syncing web metadata.
         """
         sess = self._session_mgr.get_session()
         if not sess:
             return False
         try:
+            if hasattr(self._client, "get_html"):
+                from .parsers import apply_web_html_metadata
+                html = await self._client.get_html("https://www.instagram.com/", authenticated=True)
+                if isinstance(html, str) and html:
+                    viewer = apply_web_html_metadata(html, sess=sess)
+                    return bool(viewer or getattr(sess, "x_instagram_ajax", ""))
             await self._client.get("/", rate_category="get_default")
-            return getattr(sess, 'ig_www_claim', None) is not None
+            return getattr(sess, "ig_www_claim", None) is not None
         except Exception as e:
             logger.debug(f"Warm-up failed: {e}")
             return False
+
+    async def verify_session(self) -> dict:
+        """
+        Verify current authenticated session health using live web HTML.
+
+        Extracts PolarisViewer profile, server revision, and live Relay doc_ids
+        in a single lightweight GET request without triggering spam checks.
+        """
+        sess = self._session_mgr.get_session()
+        if not sess:
+            return {"valid": False, "error": "No active session"}
+        try:
+            from .parsers import build_session_verification_report
+            html = await self._client.get_html("https://www.instagram.com/", authenticated=True)
+            return build_session_verification_report(html, sess)
+        except Exception as e:
+            logger.debug(f"verify_session failed: {e}")
+            return {"valid": False, "ds_user_id": getattr(sess, "ds_user_id", ""), "error": str(e)}
 
     # ─── PLUGIN SYSTEM ───────────────────────────────────────
 

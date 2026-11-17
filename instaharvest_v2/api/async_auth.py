@@ -17,6 +17,7 @@ Login flow (captured from real Samsung Browser via mitmproxy):
 Dependency: pip install pynacl cryptography
 """
 
+import asyncio
 import json
 import os
 import time
@@ -25,6 +26,9 @@ import logging
 import re
 import hashlib
 from typing import Any, Callable, Dict, Optional, Tuple
+
+from ..async_client import AsyncHttpClient
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2")
 
@@ -95,6 +99,14 @@ class AsyncAuthAPI:
             "__hs": "",
         }
 
+    def _get_http_session(self):
+        """Return an HTTP session compatible with AsyncHttpClient and legacy mocks."""
+        if isinstance(self._client, AsyncHttpClient):
+            return self._client._get_async_session()
+        if hasattr(self._client, "_get_curl_session"):
+            return self._client._get_curl_session()
+        return self._client._get_async_session()
+
     @property
     async def user_id(self) -> Optional[str]:
         """Get current logged-in user ID from session."""
@@ -135,7 +147,7 @@ class AsyncAuthAPI:
         # Step 1: Visit instagram.com main page
         logger.info("[Auth] Warming up session — visiting instagram.com...")
         try:
-            session.get(
+            await maybe_await(session.get(
                 "https://www.instagram.com/",
                 headers={
                     "user-agent": WEB_USER_AGENT,
@@ -151,7 +163,7 @@ class AsyncAuthAPI:
                     "upgrade-insecure-requests": "1",
                 },
                 timeout=15,
-            )
+            ))
             logger.debug(f"[Auth] Main page cookies: {list(session.cookies.keys())}")
         except Exception as e:
             logger.warning(f"[Auth] Main page visit failed: {e}")
@@ -159,13 +171,13 @@ class AsyncAuthAPI:
         # Human-like delay: 2-3 seconds
         delay1 = random.uniform(2.0, 3.5)
         logger.debug(f"[Auth] Waiting {delay1:.1f}s before login page...")
-        time.sleep(delay1)
+        await asyncio.sleep(delay1)
 
         # Step 2: Visit login page (this sets csrftoken + contains wbloks params)
         logger.info("[Auth] Visiting login page...")
         csrf_token = None
         try:
-            login_page = session.get(
+            login_page = await maybe_await(session.get(
                 "https://www.instagram.com/accounts/login/",
                 headers={
                     "user-agent": WEB_USER_AGENT,
@@ -179,7 +191,7 @@ class AsyncAuthAPI:
                     "sec-fetch-site": "same-origin",
                 },
                 timeout=15,
-            )
+            ))
 
             page_html = login_page.text
 
@@ -278,7 +290,7 @@ class AsyncAuthAPI:
         # Human-like delay before login POST
         delay2 = random.uniform(1.5, 2.5)
         logger.debug(f"[Auth] Waiting {delay2:.1f}s before login POST...")
-        time.sleep(delay2)
+        await asyncio.sleep(delay2)
 
         logger.info(f"[Auth] Warm-up complete. Cookies: {list(session.cookies.keys())}")
         return csrf_token
@@ -342,15 +354,15 @@ class AsyncAuthAPI:
         if self._encryption_keys:
             return self._encryption_keys
 
-        session = self._client._get_curl_session()
+        session = self._get_http_session()
 
         # Method 1: Parse keys from login page HTML (matches real browser)
         try:
-            resp = session.get(
+            resp = await maybe_await(session.get(
                 "https://www.instagram.com/accounts/login/",
                 headers={"user-agent": WEB_USER_AGENT},
                 timeout=15,
-            )
+            ))
             html = resp.text
             
             # Try inline JSON: {"key_id":"243","public_key":"9c24..."}
@@ -395,14 +407,14 @@ class AsyncAuthAPI:
 
         # Method 2: shared_data API (fallback)
         try:
-            resp = session.get(
+            resp = await maybe_await(session.get(
                 SHARED_DATA_URL,
                 headers={
                     "user-agent": WEB_USER_AGENT,
                     "referer": "https://www.instagram.com/accounts/login/",
                 },
                 timeout=15,
-            )
+            ))
             data = resp.json()
             encryption = data.get("encryption", {})
             if encryption.get("public_key"):
@@ -607,7 +619,7 @@ class AsyncAuthAPI:
 
             async def _auto_email_callback(ctx=None):
                 logger.info("[Auth] Auto-reading verification code from email...")
-                code = verifier.get_instagram_code(max_wait=90, poll_interval=5)
+                code = await asyncio.to_thread(verifier.get_instagram_code, max_wait=90, poll_interval=5)
                 if code:
                     logger.info(f"[Auth] Got verification code from email: {code}")
                     return code
@@ -616,7 +628,7 @@ class AsyncAuthAPI:
             challenge_callback = _auto_email_callback
 
         self._device_cookies_file = device_cookies_file
-        session = self._client._get_curl_session()
+        session = self._get_http_session()
 
         # ─── Layer 1: Warm-up (prevents "unusual login" challenges) ───
         logger.info(f"[Auth] Starting login for @{username}")
@@ -729,13 +741,13 @@ class AsyncAuthAPI:
 
         logger.info(f"[Auth] Sending wbloks login request to {wbloks_url[:80]}...")
 
-        resp = session.post(
+        resp = await maybe_await(session.post(
             wbloks_url,
             headers=login_headers,
             data=wbloks_form,
             timeout=30,
             allow_redirects=False,
-        )
+        ))
 
         resp_text = resp.text
         logger.debug(f"[Auth] Wbloks response ({resp.status_code}): {resp_text[:500]}")
@@ -841,13 +853,13 @@ class AsyncAuthAPI:
             auth_form = await self._build_wbloks_form(auth_params_json, new_csrf or csrf_token)
             auth_url = await self._build_wbloks_url(AUTH_LOGIN_APPID)
 
-            resp2 = session.post(
+            resp2 = await maybe_await(session.post(
                 auth_url,
                 headers=login_headers,
                 data=auth_form,
                 timeout=30,
                 allow_redirects=False,
-            )
+            ))
 
             logger.debug(f"[Auth] Auth login response ({resp2.status_code}): {resp2.text[:500]}")
 
@@ -885,13 +897,13 @@ class AsyncAuthAPI:
         login_headers["x-ig-app-id"] = "1217981644879628"
         login_headers["x-instagram-ajax"] = x_instagram_ajax
 
-        resp = session.post(
+        resp = await maybe_await(session.post(
             LOGIN_URL,
             headers=login_headers,
             data=login_data,
             timeout=30,
             allow_redirects=False,
-        )
+        ))
 
         try:
             result = resp.json()
@@ -993,7 +1005,7 @@ class AsyncAuthAPI:
                     return resolve_result
                 # Challenge resolved but need to re-login
                 logger.info("[Auth] Challenge resolved — retrying login...")
-                time.sleep(2)
+                await asyncio.sleep(2)
                 return await self.login(
                     username, password,
                     two_factor_callback=two_factor_callback,
@@ -1055,13 +1067,13 @@ class AsyncAuthAPI:
         # Strategy 1: Re-POST login with allow_redirects=True
         logger.debug("[Auth] Probe strategy 1: POST login with redirects...")
         try:
-            resp = session.post(
+            resp = await maybe_await(session.post(
                 LOGIN_URL,
                 headers=login_headers,
                 data=login_data,
                 timeout=30,
                 allow_redirects=True,
-            )
+            ))
 
             # Check final URL for challenge
             final_url = str(resp.url) if hasattr(resp, 'url') else ""
@@ -1091,12 +1103,12 @@ class AsyncAuthAPI:
         except Exception as e:
             logger.debug(f"[Auth] Probe strategy 1 failed: {e}")
 
-        time.sleep(random.uniform(1.0, 2.0))
+        await asyncio.sleep(random.uniform(1.0, 2.0))
 
         # Strategy 2: Visit login page and check for challenge redirect
         logger.debug("[Auth] Probe strategy 2: GET login page with redirects...")
         try:
-            resp = session.get(
+            resp = await maybe_await(session.get(
                 "https://www.instagram.com/accounts/login/",
                 headers={
                     "user-agent": WEB_USER_AGENT,
@@ -1104,7 +1116,7 @@ class AsyncAuthAPI:
                 },
                 timeout=15,
                 allow_redirects=True,
-            )
+            ))
 
             final_url = str(resp.url) if hasattr(resp, 'url') else ""
             if "/challenge/" in final_url:
@@ -1120,12 +1132,12 @@ class AsyncAuthAPI:
         except Exception as e:
             logger.debug(f"[Auth] Probe strategy 2 failed: {e}")
 
-        time.sleep(random.uniform(1.0, 2.0))
+        await asyncio.sleep(random.uniform(1.0, 2.0))
 
         # Strategy 3: Try the challenge API endpoint directly
         logger.debug("[Auth] Probe strategy 3: Direct /challenge/ access...")
         try:
-            resp = session.get(
+            resp = await maybe_await(session.get(
                 "https://www.instagram.com/challenge/",
                 headers={
                     "user-agent": WEB_USER_AGENT,
@@ -1134,7 +1146,7 @@ class AsyncAuthAPI:
                 },
                 timeout=15,
                 allow_redirects=True,
-            )
+            ))
 
             final_url = str(resp.url) if hasattr(resp, 'url') else ""
             if "/challenge/" in final_url and final_url != "https://www.instagram.com/challenge/":
@@ -1150,7 +1162,7 @@ class AsyncAuthAPI:
         # Strategy 4: Try Instagram's private API challenge endpoint
         logger.debug("[Auth] Probe strategy 4: Private API challenge check...")
         try:
-            resp = session.get(
+            resp = await maybe_await(session.get(
                 "https://i.instagram.com/api/v1/challenge/",
                 headers={
                     "user-agent": WEB_USER_AGENT,
@@ -1158,7 +1170,7 @@ class AsyncAuthAPI:
                     "x-ig-app-id": "1217981644879628",
                 },
                 timeout=15,
-            )
+            ))
 
             try:
                 data = resp.json()
@@ -1212,7 +1224,7 @@ class AsyncAuthAPI:
         # Try approach 1: GET the checkpoint page to see what type it is
         logger.info(f"[Auth] Fetching checkpoint: {checkpoint_url}")
         try:
-            resp = session.get(
+            resp = await maybe_await(session.get(
                 checkpoint_url,
                 headers={
                     "user-agent": WEB_USER_AGENT,
@@ -1220,14 +1232,14 @@ class AsyncAuthAPI:
                     "referer": "https://www.instagram.com/accounts/login/",
                 },
                 timeout=15,
-            )
+            ))
 
             # Check if it's a "This Was Me" page
             page_text = resp.text
             if "This Was Me" in page_text or "this-was-me" in page_text or "it_was_me" in page_text:
                 logger.info("[Auth] 'This Was Me' challenge detected — auto-confirming...")
                 # Try to auto-confirm "This Was Me"
-                confirm_resp = session.post(
+                confirm_resp = await maybe_await(session.post(
                     checkpoint_url,
                     headers={
                         "user-agent": WEB_USER_AGENT,
@@ -1239,7 +1251,7 @@ class AsyncAuthAPI:
                     },
                     data={"choice": "0"},  # 0 = "This Was Me" / approve
                     timeout=15,
-                )
+                ))
                 try:
                     confirm_result = confirm_resp.json()
                     if confirm_result.get("status") == "ok" or confirm_result.get("logged_in_user"):
@@ -1320,7 +1332,7 @@ class AsyncAuthAPI:
         # If challenge resolved but not authenticated, try to get session
         if result and result.get("challenge_resolved"):
             logger.info("[Auth] Challenge resolved — trying to complete login...")
-            time.sleep(2)
+            await asyncio.sleep(2)
 
             # Update CSRF token from session cookies
             new_csrf = session.cookies.get("csrftoken", csrf_token)
@@ -1329,7 +1341,7 @@ class AsyncAuthAPI:
             # Instagram may set session cookies on this navigation
             logger.info("[Auth] Visiting instagram.com to check for session...")
             try:
-                home_resp = session.get(
+                home_resp = await maybe_await(session.get(
                     "https://www.instagram.com/",
                     headers={
                         "user-agent": WEB_USER_AGENT,
@@ -1341,7 +1353,7 @@ class AsyncAuthAPI:
                     },
                     timeout=15,
                     allow_redirects=True,
-                )
+                ))
                 logger.info(f"[Auth] Homepage status: {home_resp.status_code}, cookies: {list(session.cookies.keys())}")
             except Exception as e:
                 logger.debug(f"[Auth] Homepage visit failed: {e}")
@@ -1400,13 +1412,13 @@ class AsyncAuthAPI:
             }
 
             try:
-                resp = session.post(
+                resp = await maybe_await(session.post(
                     LOGIN_URL,
                     headers=login_headers,
                     data=login_data,
                     timeout=30,
                     allow_redirects=True,
-                )
+                ))
 
                 # Check cookies first (might have session from redirect)
                 if session.cookies.get("sessionid"):
@@ -1536,13 +1548,13 @@ class AsyncAuthAPI:
             "trustedDeviceRecords": "{}",
         }
 
-        resp = session.post(
+        resp = await maybe_await(session.post(
             TWO_FACTOR_URL,
             headers={**headers, "x-csrftoken": csrf_token},
             data=data,
             timeout=30,
             allow_redirects=False,
-        )
+        ))
 
         try:
             result = resp.json()

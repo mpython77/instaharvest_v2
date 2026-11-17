@@ -63,6 +63,10 @@ class DownloadAPI:
         else:
             raise Exception(f"Download failed: HTTP {response.status_code}")
 
+    def url_to_file(self, url: str, save_path: str) -> str:
+        """Public helper downloading a media URL directly to `save_path`."""
+        return self._download_url(url, save_path)
+
     def _get_extension(self, url: str, default: str = ".jpg") -> str:
         """Determine file extension from URL."""
         path = url.split("?")[0]

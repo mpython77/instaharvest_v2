@@ -22,11 +22,14 @@ Usage:
     analysis = ig.comment_manager.sentiment(media_id)
 """
 
+import asyncio
 import logging
 import re
 import time
 import random
 from typing import Any, Dict, List, Optional, Callable
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.comment_manager")
 
@@ -107,9 +110,11 @@ class AsyncCommentManagerAPI:
                 params = {"count": str(min(count - len(all_comments), 50))}
                 if cursor:
                     params["min_id"] = cursor
-                result = self._client.request(
-                    "GET", f"/api/v1/media/{media_id}/comments/",
-                    params=params,
+                result = await maybe_await(
+                    self._client.request(
+                        "GET", f"/api/v1/media/{media_id}/comments/",
+                        params=params,
+                    )
                 )
             except Exception as e:
                 logger.debug(f"Comments fetch error: {e}")
@@ -204,12 +209,14 @@ class AsyncCommentManagerAPI:
             comment_pk = c.get("pk")
 
             try:
-                self._client.request(
-                    "POST", f"/api/v1/media/{media_id}/comment/",
-                    data={
-                        "comment_text": actual_reply,
-                        "replied_to_comment_id": str(comment_pk) if comment_pk else "",
-                    },
+                await maybe_await(
+                    self._client.request(
+                        "POST", f"/api/v1/media/{media_id}/comment/",
+                        data={
+                            "comment_text": actual_reply,
+                            "replied_to_comment_id": str(comment_pk) if comment_pk else "",
+                        },
+                    )
                 )
                 replied += 1
                 logger.debug(f"💬 Replied to @{username}: {actual_reply[:50]}")
@@ -217,7 +224,7 @@ class AsyncCommentManagerAPI:
                 errors += 1
                 logger.debug(f"Reply error: {e}")
 
-            time.sleep(random.uniform(delay[0], delay[1]))
+            await asyncio.sleep(random.uniform(delay[0], delay[1]))
 
         logger.info(f"💬 Auto-reply: {replied} sent, {skipped} skipped, {errors} errors")
         return {"replied": replied, "skipped": skipped, "errors": errors}
@@ -298,14 +305,16 @@ class AsyncCommentManagerAPI:
             if is_spam:
                 comment_pk = c.get("pk")
                 try:
-                    self._client.request(
-                        "POST", f"/api/v1/media/{media_id}/comment/{comment_pk}/delete/",
+                    await maybe_await(
+                        self._client.request(
+                            "POST", f"/api/v1/media/{media_id}/comment/{comment_pk}/delete/",
+                        )
                     )
                     deleted += 1
                     spam_users.add(c.get("username", ""))
                 except Exception as e:
                     logger.debug(f"request failed: {e}")
-                time.sleep(random.uniform(1, 3))
+                await asyncio.sleep(random.uniform(1, 3))
 
         logger.info(f"🗑️ Spam cleanup: {deleted} deleted from {len(comments.get('comments', []))} scanned")
         return {

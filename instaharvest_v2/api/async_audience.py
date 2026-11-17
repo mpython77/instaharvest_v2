@@ -17,12 +17,15 @@ Usage:
     insights = ig.audience.insights("cristiano")
 """
 
+import asyncio
 import logging
 import random
 import re
 import time
 from collections import Counter
 from typing import Any, Dict, List, Optional, Set
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.audience")
 
@@ -80,7 +83,7 @@ class AsyncAudienceAPI:
             dict: {users, source, method, count, duration_seconds}
         """
         start = time.time()
-        user = self._users.get_by_username(source_username)
+        user = await maybe_await(self._users.get_by_username(source_username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
         candidates: Dict[str, Dict] = {}  # username -> user_info
@@ -140,8 +143,8 @@ class AsyncAudienceAPI:
         Returns:
             dict: {common_followers, overlap_rate, unique_to_a, unique_to_b}
         """
-        user_a = self._users.get_by_username(username_a)
-        user_b = self._users.get_by_username(username_b)
+        user_a = await maybe_await(self._users.get_by_username(username_a))
+        user_b = await maybe_await(self._users.get_by_username(username_b))
         id_a = getattr(user_a, "pk", None) or (user_a.get("pk") if isinstance(user_a, dict) else None)
         id_b = getattr(user_b, "pk", None) or (user_b.get("pk") if isinstance(user_b, dict) else None)
 
@@ -186,7 +189,7 @@ class AsyncAudienceAPI:
             dict: {verified_rate, private_rate, avg_followers, avg_posts,
                    bio_keywords, engagement_potential}
         """
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
         # Sample followers
@@ -276,14 +279,16 @@ class AsyncAudienceAPI:
         Returns:
             List of similar account dicts
         """
-        user = self._users.get_by_username(username)
+        user = await maybe_await(self._users.get_by_username(username))
         user_id = getattr(user, "pk", None) or (user.get("pk") if isinstance(user, dict) else None)
 
         suggestions = []
         try:
-            result = self._client.request(
-                "GET", f"/api/v1/discover/chaining/",
-                params={"target_id": str(user_id)},
+            result = await maybe_await(
+                self._client.request(
+                    "GET", f"/api/v1/discover/chaining/",
+                    params={"target_id": str(user_id)},
+                )
             )
             if result and isinstance(result, dict):
                 for u in result.get("users", []):
@@ -316,7 +321,7 @@ class AsyncAudienceAPI:
                 continue
 
             try:
-                result = self._friendships.get_following(fid, count=30)
+                result = await maybe_await(self._friendships.get_following(fid, count=30))
                 following = result.get("users", [])
             except Exception as e:
                 logger.debug(f"operation failed: {e}")
@@ -347,7 +352,7 @@ class AsyncAudienceAPI:
             if len(candidates) >= target:
                 break
 
-            time.sleep(random.uniform(0.5, 1.5))
+            await asyncio.sleep(random.uniform(0.5, 1.5))
 
     async def _discover_via_hashtags(
         self, user_id, username, candidates, target, min_f, max_f, skip_private,
@@ -360,9 +365,11 @@ class AsyncAudienceAPI:
 
         for tag in hashtags[:5]:
             try:
-                result = self._client.request(
-                    "GET", f"/api/v1/tags/{tag}/sections/",
-                    params={"tab": "recent", "count": "20"},
+                result = await maybe_await(
+                    self._client.request(
+                        "GET", f"/api/v1/tags/{tag}/sections/",
+                        params={"tab": "recent", "count": "20"},
+                    )
                 )
                 if not result or not isinstance(result, dict):
                     continue
@@ -401,9 +408,11 @@ class AsyncAudienceAPI:
         """Extract hashtags used by a user from recent posts."""
         tags = Counter()
         try:
-            result = self._client.request(
-                "GET", f"/api/v1/feed/user/{user_id}/",
-                params={"count": "15"},
+            result = await maybe_await(
+                self._client.request(
+                    "GET", f"/api/v1/feed/user/{user_id}/",
+                    params={"count": "15"},
+                )
             )
             if result and isinstance(result, dict):
                 for item in result.get("items", []):
@@ -421,7 +430,9 @@ class AsyncAudienceAPI:
         cursor = None
         while len(all_users) < count:
             try:
-                result = self._friendships.get_followers(user_id, count=50, max_id=cursor)
+                result = await maybe_await(
+                    self._friendships.get_followers(user_id, count=50, max_id=cursor)
+                )
             except Exception as e:
                 break
             users = result.get("users", [])

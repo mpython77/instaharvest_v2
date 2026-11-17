@@ -13,6 +13,7 @@ from pathlib import Path
 
 import asyncio
 from ..async_client import AsyncHttpClient
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2")
 
@@ -36,6 +37,13 @@ class AsyncDownloadAPI:
             os.makedirs(dir_path, exist_ok=True)
         return path
 
+    def _is_async_client(self) -> bool:
+        """Return True when backed by a real async HTTP client or AsyncMock."""
+        import inspect as _inspect
+        return isinstance(self._client, AsyncHttpClient) or _inspect.iscoroutinefunction(
+            getattr(self._client, "get", None)
+        )
+
     async def _download_url(self, url: str, save_path: str) -> str:
         """
         Download a file from URL.
@@ -48,7 +56,12 @@ class AsyncDownloadAPI:
             str: Saved file path
         """
         await self._ensure_dir(save_path)
-        session = self._client._get_curl_session()
+        if isinstance(self._client, AsyncHttpClient):
+            session = self._client._get_async_session()
+        elif hasattr(self._client, "_get_curl_session"):
+            session = self._client._get_curl_session()
+        else:
+            session = self._client._get_async_session()
         sess_info = self._client._session_mgr.get_session()
 
         headers = {
@@ -56,13 +69,17 @@ class AsyncDownloadAPI:
             "referer": "https://www.instagram.com/",
         }
 
-        response = session.get(url, headers=headers, timeout=60)
+        response = await maybe_await(session.get(url, headers=headers, timeout=60))
         if response.status_code == 200:
             with open(save_path, "wb") as f:
                 f.write(response.content)
             return save_path
         else:
             raise Exception(f"Download failed: HTTP {response.status_code}")
+
+    async def url_to_file(self, url: str, save_path: str) -> str:
+        """Public async helper downloading a media URL directly to `save_path`."""
+        return await self._download_url(url, save_path)
 
     async def _get_extension(self, url: str, default: str = ".jpg") -> str:
         """Determine file extension from URL."""
@@ -97,9 +114,12 @@ class AsyncDownloadAPI:
         Returns:
             list: Saved file paths
         """
-        from .media import MediaAPI
-        media_api = MediaAPI(self._client)
-        info = media_api.get_info(media_pk)
+        if self._is_async_client():
+            from .async_media import AsyncMediaAPI
+            info = await AsyncMediaAPI(self._client).get_info(media_pk)
+        else:
+            from .media import MediaAPI
+            info = MediaAPI(self._client).get_info(media_pk)
 
         saved_files = []
         items = info.get("items", [info])
@@ -206,9 +226,14 @@ class AsyncDownloadAPI:
         Returns:
             list: Saved file paths
         """
-        from .stories import StoriesAPI
-        stories_api = StoriesAPI(self._client)
-        data = stories_api.get_user_stories(user_pk)
+        if self._is_async_client():
+            from .async_stories import AsyncStoriesAPI
+            stories_api = AsyncStoriesAPI(self._client)
+            data = await stories_api.get_user_stories(user_pk)
+        else:
+            from .stories import StoriesAPI
+            stories_api = StoriesAPI(self._client)
+            data = stories_api.get_user_stories(user_pk)
 
         reel = data.get("reel") or data.get("reels", {}).get(str(user_pk), {})
         items = reel.get("items", [])
@@ -242,10 +267,15 @@ class AsyncDownloadAPI:
         Returns:
             dict: {highlight_title: [file_paths]}
         """
-        from .stories import StoriesAPI
-        stories_api = StoriesAPI(self._client)
-
-        highlights = stories_api.get_highlights_tray(user_pk)
+        is_async = self._is_async_client()
+        if is_async:
+            from .async_stories import AsyncStoriesAPI
+            stories_api = AsyncStoriesAPI(self._client)
+            highlights = await stories_api.get_highlights_tray(user_pk)
+        else:
+            from .stories import StoriesAPI
+            stories_api = StoriesAPI(self._client)
+            highlights = stories_api.get_highlights_tray(user_pk)
         tray = highlights.get("tray", [])
 
         result = {}
@@ -254,7 +284,7 @@ class AsyncDownloadAPI:
             title = hl.get("title", hl_id)
             safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)
 
-            items_data = stories_api.get_highlight_items(hl_id)
+            items_data = await maybe_await(stories_api.get_highlight_items(hl_id))
             reel = items_data.get("reels", {}).get(hl_id, {})
             items = reel.get("items", [])
 
@@ -268,7 +298,7 @@ class AsyncDownloadAPI:
                     saved.append(path)
 
             result[title] = saved
-            time.sleep(1)  # Rate limiting
+            await asyncio.sleep(1)  # Rate limiting
 
         return result
 
@@ -293,17 +323,26 @@ class AsyncDownloadAPI:
         Returns:
             str: Saved file path
         """
-        from .users import UsersAPI
-        users_api = UsersAPI(self._client)
-
-        if username:
-            user_data = users_api.get_by_username(username)
-        elif user_pk:
-            user_data = users_api.get_by_id(user_pk)
+        if self._is_async_client():
+            from .async_users import AsyncUsersAPI
+            users_api = AsyncUsersAPI(self._client)
+            if username:
+                user_data = await users_api.get_by_username(username)
+            elif user_pk:
+                user_data = await users_api.get_by_id(user_pk)
+            else:
+                raise ValueError("Either username or user_pk is required!")
         else:
-            raise ValueError("Either username or user_pk is required!")
+            from .users import UsersAPI
+            users_api = UsersAPI(self._client)
+            if username:
+                user_data = users_api.get_by_username(username)
+            elif user_pk:
+                user_data = users_api.get_by_id(user_pk)
+            else:
+                raise ValueError("Either username or user_pk is required!")
 
-        user = user_data.get("user", user_data)
+        user = user_data.get("user", user_data) if isinstance(user_data, dict) else user_data
         uname = user.get("username", str(user_pk or username))
 
         pic_url = None
@@ -345,10 +384,12 @@ class AsyncDownloadAPI:
         Returns:
             list: Saved file paths
         """
-        from .feed import FeedAPI
-        feed_api = FeedAPI(self._client)
-
-        all_posts = feed_api.get_all_posts(user_pk, max_posts=max_posts)
+        if self._is_async_client():
+            from .async_feed import AsyncFeedAPI
+            all_posts = await AsyncFeedAPI(self._client).get_all_posts(user_pk, max_posts=max_posts)
+        else:
+            from .feed import FeedAPI
+            all_posts = FeedAPI(self._client).get_all_posts(user_pk, max_posts=max_posts)
         saved = []
 
         for post in all_posts:
@@ -384,7 +425,7 @@ class AsyncDownloadAPI:
                     except Exception as e:
                         logger.warning(f"Download error {code}: {e}")
 
-            time.sleep(0.5)  # Rate limiting
+            await asyncio.sleep(0.5)  # Rate limiting
 
         return saved
 

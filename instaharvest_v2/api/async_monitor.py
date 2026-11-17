@@ -23,11 +23,14 @@ Usage:
     ig.monitor.stop()
 """
 
+import asyncio
 import logging
 import threading
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
+
+from ..http_utils import maybe_await
 
 logger = logging.getLogger("instaharvest_v2.monitor")
 
@@ -252,7 +255,7 @@ class AsyncMonitorAPI:
         await self._check_all(initial=True)
 
         while self._running:
-            time.sleep(self._interval)
+            await asyncio.sleep(self._interval)
             if not self._running:
                 break
             try:
@@ -289,7 +292,7 @@ class AsyncMonitorAPI:
 
         # Fetch current state
         try:
-            user = self._users.get_by_username(watcher.username)
+            user = await maybe_await(self._users.get_by_username(watcher.username))
         except Exception as e:
             return 0
 
@@ -304,9 +307,11 @@ class AsyncMonitorAPI:
             try:
                 uid = current.get("user_id")
                 if uid:
-                    feed = self._client.request(
-                        "GET", f"/api/v1/feed/user/{uid}/",
-                        params={"count": "12"},
+                    feed = await maybe_await(
+                        self._client.request(
+                            "GET", f"/api/v1/feed/user/{uid}/",
+                            params={"count": "12"},
+                        )
                     )
                     items = feed.get("items", []) if feed else []
                     for item in items:

@@ -13,6 +13,7 @@ Why normalize:
 """
 
 import re
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 # Numeric IDs (>=6 digits) -> <id>
@@ -50,3 +51,27 @@ def endpoint_key(url: str) -> str:
     path = _HEX_TOKEN_RE.sub("/<hash>", path)
     path = _TRAILING_SLASH_RE.sub("", path) or "/"
     return f"{netloc}{path}"
+
+
+def resolve_endpoint_key(
+    url: str,
+    params: Optional[Dict[str, Any]] = None,
+    data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Derive an endpoint key that isolates individual GraphQL operations.
+
+    Because Instagram routes many unrelated queries through `/graphql/query`,
+    keying solely on URL causes one broken/expired doc_id to trip the circuit
+    breaker for all other healthy GraphQL queries.
+    """
+    base = endpoint_key(url)
+    if base.endswith("/graphql/query"):
+        op = None
+        if isinstance(data, dict):
+            op = data.get("fb_api_req_friendly_name") or data.get("doc_id")
+        if not op and isinstance(params, dict):
+            op = params.get("query_hash")
+        if op:
+            return f"{base}:{op}"
+    return base

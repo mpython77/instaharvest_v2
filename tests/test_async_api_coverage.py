@@ -234,6 +234,7 @@ class TestAsyncPublicAPI:
     @pytest.mark.asyncio
     async def test_get_comments_none(self, api):
         api._client.get_post_comments_graphql = AsyncMock(return_value=None)
+        api._client.get_post_chain = AsyncMock(return_value=None)
         result = await api.get_comments("ABC")
         assert result == []
 
@@ -315,6 +316,7 @@ class TestAsyncPublicAPI:
     @pytest.mark.asyncio
     async def test_get_location_posts_none(self, api):
         api._client.get_location_sections = AsyncMock(return_value=None)
+        api._client.get_location_html = AsyncMock(return_value=None)
         result = await api.get_location_posts(12345)
         assert result["posts"] == []
 
@@ -344,5 +346,6 @@ class TestAsyncPublicAPI:
     @pytest.mark.asyncio
     async def test_get_hashtag_posts_v2_none(self, api):
         api._client.get_hashtag_sections = AsyncMock(return_value=None)
+        api._client.get_hashtag_html = AsyncMock(return_value=None)
         result = await api.get_hashtag_posts_v2("test")
         assert result["posts"] == []
