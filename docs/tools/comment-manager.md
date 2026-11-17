@@ -17,25 +17,25 @@ print(f"Positive: {sentiment['positive']}%, Negative: {sentiment['negative']}%")
 
 ## Methods
 
-### get_comments(media_pk, sort="top", filter_spam=True)
+### get_comments(media_id, count=50, sort="newest")
 
 Get filtered comments for a post.
 
 | Param | Type | Default | Description |
 |---|---|---|---|
-| `media_pk` | `str/int` | — | Post media PK |
-| `sort` | `str` | "top" | Sort: "top", "recent" |
-| `filter_spam` | `bool` | True | Auto-filter spam |
+| `media_id` | `str/int` | — | Post media ID / PK |
+| `count` | `int` | 50 | Max comments to fetch |
+| `sort` | `str` | `"newest"` | Sort: `"newest"`, `"top"`, `"oldest"` |
 
 ---
 
-### auto_reply(media_pk, keyword, reply)
+### auto_reply(media_id, keyword="", reply="", max_count=20, skip_own=True, delay=(3, 8))
 
 Auto-reply to comments containing a keyword.
 
 ```python
 ig.comment_manager.auto_reply(
-    media_pk,
+    media_id,
     keyword="price?",
     reply="Check our bio for pricing! 💰"
 )
@@ -43,12 +43,12 @@ ig.comment_manager.auto_reply(
 
 ---
 
-### delete_spam(media_pk)
+### delete_spam(media_id, max_delete=50, custom_patterns=None)
 
 Detect and delete spam comments.
 
 ```python
-result = ig.comment_manager.delete_spam(media_pk)
+result = ig.comment_manager.delete_spam(media_id)
 print(f"Deleted {result['deleted']} spam comments")
 ```
 
@@ -62,12 +62,12 @@ print(f"Deleted {result['deleted']} spam comments")
 
 ---
 
-### sentiment(media_pk)
+### sentiment(media_id, count=100)
 
 Analyze comment sentiment distribution.
 
 ```python
-result = ig.comment_manager.sentiment(media_pk)
+result = ig.comment_manager.sentiment(media_id)
 # {
 #     "total": 150,
 #     "positive": 65,    # percentage

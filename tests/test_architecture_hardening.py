@@ -275,6 +275,23 @@ class TestAsyncInstagramLazyAndSafety:
         assert saved[0]["id"] == "j1"
         assert saved[0]["job_type"] == "post"
 
+    def test_agent_package_lazy_exports(self):
+        import instaharvest_v2.agent as agent_pkg
+        from instaharvest_v2.agent import (
+            InstaAgent,
+            AgentResult,
+            Permission,
+            AgentCoordinator,
+            CoordinatorResult,
+        )
+        assert InstaAgent is not None
+        assert AgentResult is not None
+        assert Permission.FULL_ACCESS is not None
+        assert AgentCoordinator is not None
+        assert CoordinatorResult is not None
+        with pytest.raises(AttributeError):
+            _ = agent_pkg.non_existent_agent_symbol
+
 
 # ═══════════════════════════════════════════════════════════
 # 4. Static AST Architectural Invariants

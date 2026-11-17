@@ -27,7 +27,7 @@ Extends `UserShort` encompassing the heavy data profile grabs.
 | `followers` | `int` | Exact count |
 | `following` | `int` | Exact count |
 | `external_url` | `str` | |
-| `bio_links` | `list` | Contains structured URL maps |
+| `bio` | `BioParsed` | Sub-model containing `bio_links`, `bio_mentions`, `bio_hashtags`, `bio_urls` |
 | `is_business` | `bool` | |
 | `contact` | `Contact` | Sub-model |
 
@@ -51,17 +51,17 @@ Posts, Reels, and IGTV.
 
 | Property | Type | Note |
 |---|---|---|
-| `pk` | `str` / `int` | Numeric identifier |
-| `shortcode` | `str` | Link identifier |
-| `media_type` | `int` | Type Enum |
+| `pk` | `int` | Numeric identifier |
+| `code` | `str` | URL shortcode (`media.url` property builds full link) |
+| `media_type` | `int` | 1=photo, 2=video, 8=carousel |
 | `like_count` | `int` | |
 | `comment_count` | `int` | |
 | `taken_at` | `datetime` | |
-| `image_versions` | `list` | URLs to CDN host |
-| `video_url` | `str` | If type is Video |
+| `image_versions` | `list[ImageVersion]` | Image candidates (`media.best_image_url` helper) |
+| `video_versions` | `list[ImageVersion]` | Video candidates (`media.best_video_url` helper) |
 | `carousel_media` | `list[Media]` | If type is Carousel |
-| `caption` | `Caption` | Contains `.text` |
-| `location` | `Location` | |
+| `caption` | `Caption` | Contains `.text` (`caption_text` for raw text) |
+| `location` | `dict` | Raw location data (if tagged) |
 
 ### Comment
 

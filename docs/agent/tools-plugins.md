@@ -1,8 +1,8 @@
 # Tools & Plugins
 
-## Built-in Tools (161)
+## Built-in Tools (162)
 
-The agent automatically selects the right tool for each task from its extensive library of 161 built-in tools, organized into 10 specialized categories:
+The agent automatically selects the right tool for each task from its library of 162 built-in tools across 13 specialized tool modules:
 
 ### 1. Instagram Core Tools
 Get profiles, parse posts, extract reels, stories, and comments.
@@ -10,8 +10,8 @@ Get profiles, parse posts, extract reels, stories, and comments.
 ### 2. Media & Social Tools
 Follow, like, comment, and send Direct Messages (DMs) seamlessly.
 
-### 3. Analytics & Growth Tools
-Compare multiple accounts, calculate engagement rates, and find peak posting times.
+### 3. Analytics, Export & Growth Tools
+Compare multiple accounts, calculate engagement rates, find peak posting times, export CSV/JSON, and manage follow/unfollow workflows.
 
 ### 4. Automation & Monitoring Tools
 Schedule future posts, auto-greet new followers, and monitor target accounts.
@@ -25,13 +25,13 @@ Run DuckDuckGo internet searches and send authenticated HTTP API requests.
 ### 7. Auth & Context Tools
 Securely authenticate, validate sessions, perform checkups, and cycle proxies.
 
-### 8. File I/O Tools
-Sandboxed tools to read CSV/JSON, save output logs, and manage local directory file structures.
+### 8. File & Analysis Tools
+Sandboxed tools to read CSV/JSON, save output logs, analyze structured datasets, and manage local files.
 
 ### 9. Utility & Transformation Tools
 Parse complex JSON objects, transform CSV to JSON, perform numeric calculations, and merge files.
 
-### 10. `run_InstaHarvest v2_code`
+### 10. `run_instaharvest_v2_code`
 Execute custom Python code in a secure sandbox with direct access to the `ig` client when standard tools aren't enough.
 
 ---

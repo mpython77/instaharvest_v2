@@ -1,6 +1,6 @@
 # Event System
 
-InstaHarvest v2 includes a robust synchronous `EventEmitter` natively built into the `HttpClient`. Every major action, request, error, and proxy shift broadcasts a standardized event string that any plugin or script can hook into.
+InstaHarvest v2 includes a built-in `EventEmitter` (`ig._events`) supporting both **synchronous and async callbacks** across request, retry, rate-limit, and rotation lifecycles.
 
 ## Quick Example
 
@@ -8,54 +8,58 @@ InstaHarvest v2 includes a robust synchronous `EventEmitter` natively built into
 from instaharvest_v2 import Instagram
 from instaharvest_v2.events import EventType
 
-def on_request(data):
-    print(f"📡 Making Request: {data.get('url')}")
-    
-def on_challenge(data):
-    print(f"🚨 CHALLENGE ISSUED for session!")
+def on_request(event):
+    print(f"📡 Requesting: {event.endpoint}")
+
+def on_challenge(event):
+    print(f"🚨 Challenge on {event.endpoint}: {event.error}")
 
 ig = Instagram.from_env()
 
-# Hook into events
-ig.on("api_request", on_request)
-ig.on(EventType.CHALLENGE_REQUIRED, on_challenge)
+# Hook into events via EventType or raw string value
+ig.on(EventType.REQUEST, on_request)
+ig.on(EventType.CHALLENGE, on_challenge)
 ```
 
 ## Available Event Types
 
-The `instaharvest_v2.events.EventType` ENUM defines all supported hooks:
+`instaharvest_v2.events.EventType` defines all emitted event types, each passing an `EventData` dataclass (`event_type`, `timestamp`, `attempt`, `endpoint`, `error`, `status_code`, `extra`) to registered handlers:
 
-| Event Type String | Fired When | Data Payload |
+| Enum Member | Value | When Fired |
 |---|---|---|
-| `api_request` | Right before firing a curl_cffi HTTP request | `{"url", "method", "proxy"}` |
-| `api_response` | Received raw response | `{"url", "status_code", "time_ms"}` |
-| `api_error` | Critical network/parsing crash | `{"url", "error_msg"}` |
-| `rate_limited` | Encounters 429 Too Many Requests | `{"url", "time_waited"}` |
-| `challenge_required`| Account flagged for verification | `{"challenge_url", "type"}` |
-| `proxy_rotated` | RateLimiter / health check skips a proxy | `{"old_proxy", "new_proxy"}` |
-| `session_expired` | Auth session requires refresh (401/302) | `{"session_id"}` |
-| `login_success` | Re-auth auto callback passed | `{"user_id"}` |
+| `EventType.REQUEST` | `"request"` | On HTTP request execution |
+| `EventType.RETRY` | `"retry"` | Before retrying a failed request |
+| `EventType.RATE_LIMIT` | `"rate_limit"` | When HTTP 429 / rate limit occurs |
+| `EventType.CHALLENGE` | `"challenge"` | When `ChallengeRequired` is triggered |
+| `EventType.LOGIN_REQUIRED` | `"login_required"` | When session auth expires (401/302) |
+| `EventType.NETWORK_ERROR` | `"network_error"` | On connection/transport failure |
+| `EventType.ERROR` | `"error"` | On general request error |
+| `EventType.SESSION_REFRESH` | `"session_refresh"` | On session auto-refresh attempt |
+| `EventType.SESSION_ROTATE` | `"session_rotate"` | On multi-session rotation |
+| `EventType.PROXY_ROTATE` | `"proxy_rotate"` | On proxy switch |
 
-## Using the EventEmitter
+## Using `EventEmitter`
 
-You can listen (`.on`) and unregister (`.off`) anywhere on the main `ig` wrapper.
+You can listen (`.on`) and unregister (`.off`) directly on `Instagram` / `AsyncInstagram`:
 
-### Monitor Scraping Speed
+### Monitor Request Throughput
 
 ```python
 import time
+from instaharvest_v2 import Instagram
+from instaharvest_v2.events import EventType
 
 class SpeedMonitor:
     def __init__(self, ig):
         self.count = 0
         self.start = time.time()
-        ig.on(EventType.API_RESPONSE, self.tick)
-        
-    def tick(self, data):
+        ig.on(EventType.REQUEST, self.tick)
+
+    def tick(self, event):
         self.count += 1
         if self.count % 100 == 0:
             elapsed = time.time() - self.start
-            print(f"Scraped 100 reqs in {elapsed:.2f}s")
+            print(f"100 requests in {elapsed:.2f}s (last: {event.endpoint})")
             self.start = time.time()
 
 ig = Instagram.anonymous(unlimited=True)
@@ -64,8 +68,6 @@ monitor = SpeedMonitor(ig)
 
 ### Removing Hooks
 
-To safely disconnect an active event hook:
-
 ```python
-ig.off(EventType.API_RESPONSE, monitor.tick)
+ig.off(EventType.REQUEST, monitor.tick)
 ```

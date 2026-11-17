@@ -84,7 +84,7 @@ Unmute a user.
 
 ## Followers & Following Lists
 
-### get_followers(user_id, count=50, after=None)
+### get_followers(user_id, count=50, max_id=None)
 
 Fetch followers of a user.
 
@@ -92,7 +92,7 @@ Fetch followers of a user.
 |---|---|---|---|---|
 | `user_id` | `int\|str` | ✅ | — | Target account PK |
 | `count` | `int` | ❌ | 50 | Items per page |
-| `after` | `str` | ❌ | `None` | Pagination cursor |
+| `max_id` | `str` | ❌ | `None` | Pagination cursor |
 
 **Returns:** `dict` with `users` list and pagination
 
@@ -123,7 +123,7 @@ print(f"Got {len(followers)} followers")
 
 ---
 
-### get_following(user_id, count=50, after=None)
+### get_following(user_id, count=50, max_id=None)
 
 Fetch accounts that a user is following.
 

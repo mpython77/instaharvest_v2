@@ -43,12 +43,15 @@ python -m instaharvest_v2.agent.cli [OPTIONS] [QUESTION]
 | `--model` | auto | Model override |
 | `--api-key` | env | API key |
 | `--env` | `.env` | Path to .env file |
-| `--permission` | `ask_once` | `ask_every`, `ask_once`, `full_access` |
+| `--permission` | `full_access` | `ask_every`, `ask_once`, `full_access` |
 | `--full-access` | — | Skip all permission checks |
 | `--parallel TASK...` | — | Run tasks in parallel |
-| `--max-steps` | `15` | Max agent loop steps |
-| `--timeout` | `30` | Code execution timeout (sec) |
+| `--max-steps` | `25` | Max agent loop steps |
+| `--timeout` | `60` | Code execution timeout (sec) |
 | `--quiet` | — | Show only result |
+| `--compact` | — | Compact output mode |
+| `--no-banner` | — | Skip welcome banner |
+| `--login` / `--logout` | — | Re-authenticate / clear saved session |
 
 ### Examples
 

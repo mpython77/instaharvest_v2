@@ -58,7 +58,7 @@ def create_parser() -> argparse.ArgumentParser:
         default="gemini",
         help=(
             "AI provider: openai, gemini, claude, deepseek, qwen, groq, "
-            "together, mistral, ollama, openrouter, fireworks, perplexity, xai "
+            "together, mistral, ollama, openrouter, xai "
             "(default: gemini)"
         ),
     )

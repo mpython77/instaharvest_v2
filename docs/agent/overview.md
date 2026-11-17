@@ -58,47 +58,45 @@ print(result.answer)
 
 | Provider | Default Model | API Key Env Var |
 |---|---|---|
-| **Google Gemini** | gemini-2.5-flash | `GEMINI_API_KEY` |
-| **OpenAI** | gpt-4.1-mini | `OPENAI_API_KEY` |
-| **Anthropic Claude** | claude-sonnet-4 | `ANTHROPIC_API_KEY` |
-| **DeepSeek** | deepseek-chat | `DEEPSEEK_API_KEY` |
-| **Qwen** | qwen3-32b | `DASHSCOPE_API_KEY` |
-| **Groq** | llama-3.3-70b | `GROQ_API_KEY` |
-| **Together AI** | llama-3.3-70b | `TOGETHER_API_KEY` |
-| **Mistral** | mistral-large | `MISTRAL_API_KEY` |
-| **Ollama** (local) | llama3.2 | _none_ |
-| **OpenRouter** | auto | `OPENROUTER_API_KEY` |
-| **Fireworks AI** | llama-v3p3-70b | `FIREWORKS_API_KEY` |
-| **Perplexity** | sonar-pro | `PERPLEXITY_API_KEY` |
-| **xAI (Grok)** | grok-3 | `XAI_API_KEY` |
+| **Google Gemini** | `gemini-2.5-flash` | `GEMINI_API_KEY` |
+| **OpenAI** | `gpt-4.1-mini` | `OPENAI_API_KEY` |
+| **Anthropic Claude** | `claude-sonnet-4` | `ANTHROPIC_API_KEY` |
+| **DeepSeek** | `deepseek-chat` | `DEEPSEEK_API_KEY` |
+| **Qwen** | `qwen-turbo` | `DASHSCOPE_API_KEY` |
+| **Groq** | `llama-3.3-70b-versatile` | `GROQ_API_KEY` |
+| **Together AI** | `mistralai/Mixtral-8x7B-Instruct-v0.1` | `TOGETHER_API_KEY` |
+| **Mistral** | `mistral-large-latest` | `MISTRAL_API_KEY` |
+| **Ollama** (local) | `llama3` | _none_ |
+| **OpenRouter** | `openai/gpt-4o` | `OPENROUTER_API_KEY` |
+| **xAI (Grok)** | `grok-beta` | `XAI_API_KEY` |
 
 !!! tip "Latest Models"
-    Each provider supports many models beyond the default. Pass `model="model-name"` to override:
+    Each provider supports overriding the model via `model="model-name"` (aliases `google`, `anthropic`, and `grok` are also supported):
 
-    - **Gemini**: `gemini-3.1-pro`, `gemini-3-pro`, `gemini-3-flash`, `gemini-2.5-pro`
-    - **OpenAI**: `gpt-5.2`, `gpt-5`, `gpt-4.1`, `o3`, `o4-mini`
-    - **Claude**: `claude-opus-4.6`, `claude-sonnet-4.6`, `claude-haiku-4.5`
-    - **DeepSeek**: `deepseek-reasoner` (thinking mode)
-    - **xAI**: `grok-4-latest`, `grok-3-latest`
+    - **Gemini**: `gemini-2.5-flash`, `gemini-2.5-pro`
+    - **OpenAI**: `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`
+    - **Claude**: `claude-sonnet-4`, `claude-opus-4`
+    - **DeepSeek**: `deepseek-chat`, `deepseek-reasoner`
+    - **xAI**: `grok-beta`, `grok-3`
 
 ## Permission Levels
 
 ```python
-from instaharvest_v2.agent import Permission
+from instaharvest_v2.agent import InstaAgent, Permission
 
 # Ask before every action (safest)
-agent = InstaAgent(ig=ig, permission=Permission.ASK_EVERY, ...)
+agent = InstaAgent(ig=ig, permission=Permission.ASK_EVERY)
 
 # Ask once per action type
-agent = InstaAgent(ig=ig, permission=Permission.ASK_ONCE, ...)
+agent = InstaAgent(ig=ig, permission=Permission.ASK_ONCE)
 
 # No prompts (max speed, for automation)
-agent = InstaAgent(ig=ig, permission=Permission.FULL_ACCESS, ...)
+agent = InstaAgent(ig=ig, permission=Permission.FULL_ACCESS)
 ```
 
-## Built-in Tools (161)
+## Built-in Tools (162)
 
-The agent has 161 specialized tools it can use to complete tasks, organized into 10 core categories:
+The agent has 162 specialized tools registered in `TOOL_HANDLERS` across 13 tool modules (covering core Instagram scraping, media/social interactions, analytics, export, growth, automation/monitoring/scheduling, pipelines, network/search, auth, file/system, data analysis, and utilities):
 
 | Category | Description |
 |---|---|

@@ -5,14 +5,14 @@
 [![PyPI](https://img.shields.io/pypi/v/instaharvest-v2?color=blue)](https://pypi.org/project/instaharvest-v2/)
 [![Python](https://img.shields.io/pypi/pyversions/instaharvest-v2)](https://pypi.org/project/instaharvest-v2/)
 [![License](https://img.shields.io/github/license/mpython77/instaharvest_v2)](https://github.com/mpython77/instaharvest_v2/blob/main/LICENSE)
-![Modules](https://img.shields.io/badge/modules-33+33-green)
+![Modules](https://img.shields.io/badge/modules-33+34-green)
 ![Async](https://img.shields.io/badge/async-full_parity-brightgreen)
 ![Agent Tools](https://img.shields.io/badge/agent_tools-162-orange)
-![Tests](https://img.shields.io/badge/tests-6242_passed-success)
+![Tests](https://img.shields.io/badge/tests-6280_passed-success)
 ![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)
 [![Docs](https://img.shields.io/badge/docs-online-blue?logo=readthedocs)](https://mpython77.github.io/instaharvest_v2/)
 
-> 33 sync + 33 async modules • 315+ functions • 162 agent tools • Pydantic models • AI Agent • CI/CD • 6242 tests passed
+> 33 sync + 34 async modules (33 async API mirrors + `batch`) • 335+ methods • 162 agent tools • Pydantic models • AI Agent • CI/CD • 6280 tests passed
 >
 > 📖 **Documentation:** [mpython77.github.io/instaharvest_v2](https://mpython77.github.io/instaharvest_v2/)
 
@@ -58,7 +58,7 @@ ig = Instagram.from_env(".env")
 user = ig.users.get_by_username("cristiano")
 print(user.username)        # cristiano
 print(user.followers)       # 650000000
-print(user["bio"])           # dict-like access works too
+print(user["biography"])    # dict-like access works too
 ```
 
 ### With login
@@ -141,7 +141,7 @@ async def main():
 asyncio.run(main())
 ```
 
-*Checkout `examples/parallel_proxy_mobile.py` for a full 50-profile parallel scraping test!*
+*Check out `examples/parallel_proxy_mobile.py` for a full 50-profile parallel scraping test!*
 
 ### 🔬 API Diagnostics
 
@@ -188,7 +188,7 @@ from instaharvest_v2.agent import InstaAgent, Permission
 ig = Instagram.from_env(".env")
 agent = InstaAgent(
     ig=ig,
-    provider="gemini",        # 13+ AI providers
+    provider="gemini",        # 11 AI providers
     permission=Permission.FULL_ACCESS,
     memory=True,
 )
@@ -247,7 +247,7 @@ ig.media.pin_comment(media_pk, comment_pk)
 ```python
 # Home feed (GraphQL v2 — fast and reliable)
 timeline = ig.feed.get_timeline(count=12)     # → {posts, has_next, end_cursor}
-all_tl = ig.feed.get_all_timeline(max=50)     # full pagination
+all_tl = ig.feed.get_all_timeline(max_posts=50)  # full pagination
 
 # User posts
 ig.feed.get_user_feed(user_pk)                # REST endpoint
@@ -266,7 +266,7 @@ ig.feed.get_location_feed(location_pk)        # By location
 ### 📖 Stories
 
 ```python
-ig.stories.get_tray()
+ig.stories.get_reels_tray()
 ig.stories.get_user_stories(user_pk)
 ig.stories.mark_seen(story_pks)
 ig.stories.get_highlights_tray(user_pk)
@@ -294,7 +294,7 @@ ig.friendships.get_mutual_followers(user_pk)
 ```python
 ig.direct.get_inbox()
 ig.direct.send_text(thread_id, "Hello!")
-ig.direct.send_media(thread_id, media_pk)
+ig.direct.send_media_share(thread_id, media_pk)
 ig.direct.create_thread([user_pk1, user_pk2])
 ig.direct.send_link(thread_id, "https://example.com")
 ig.direct.send_reaction(thread_id, item_id, "❤️")
@@ -424,7 +424,7 @@ for post in data["posts"]:
     print(f"{post['shortcode']} | ❤️{post['like_count']} | {post['caption'][:50]}")
 
 # 💬 Comments (GraphQL v2)
-data = ig.graphql.get_comments_v2(media_pk="3843229444966511752", count=20)
+data = ig.graphql.get_comments_v2(media_id="3843229444966511752", count=20)
 for c in data["comments"]:
     print(f"@{c['user']['username']}: {c['text'][:50]} | ❤️{c['like_count']}")
 
@@ -603,7 +603,7 @@ user = ig.users.get_by_username("cristiano")
 
 # Typed attributes
 print(user.username)          # "cristiano"
-print(user.follower_count)    # 650000000
+print(user.followers)         # 650000000
 
 # Dict-like access (backward compatible)
 print(user["username"])       # "cristiano"
@@ -612,10 +612,10 @@ print(user["username"])       # "cristiano"
 data = user.to_dict()
 
 # Extra fields preserved (API changes won't break)
-print(user.some_new_field)    # works!
+print(user.get("some_new_field"))    # returns field if present in payload
 ```
 
-**Available models:** `User`, `UserShort`, `Media`, `Comment`, `Story`, `Highlight`, `DirectThread`, `DirectMessage`, `Location`, `Hashtag`, `Notification`
+**Available models:** `InstaModel`, `User`, `UserShort`, `Contact`, `BioParsed`, `Media`, `Caption`, `Comment`, `Story`, `StorySticker`, `Highlight`, `DirectThread`, `DirectMessage`, `Location`, `ImageVersion`, `Pagination`, `HashtagSearchResult`, `Notification`, `NotifInbox`, `PublicProfile`, `PublicPost`, `HashtagPost`, `ProfileSnapshot`, `PublicDataReport`
 
 ---
 
@@ -623,38 +623,38 @@ print(user.some_new_field)    # works!
 
 | Feature | Description |
 | --------- | ------------- |
-| 🛡️ **Anti-detection** | Browser fingerprint rotation, Gaussian delays, escalation |
-| 🔄 **Multi-account** | Automatic session rotation |
+| 🛡️ **Anti-detection** | Coherent Chrome TLS/header profiles (`chrome142`/`chrome136`), session-locked fingerprints, Gaussian delays, escalation |
+| 🔄 **Multi-account** | Automatic session rotation & cooldowns |
 | 🌐 **Proxy support** | SOCKS5/HTTP, weighted rotation, health checking |
-| ⏱️ **Rate limiting** | Per-endpoint sliding window limits |
+| ⏱️ **Rate limiting** | Per-endpoint sliding window limits + `TokenBucketLimiter` in `core/` |
 | 🔐 **Login** | NaCl encrypted password, 2FA, checkpoint handling |
 | 💾 **Session persistence** | Save/load sessions, no re-login needed |
 | 🧩 **Challenge handler** | Auto-resolve email/SMS/consent challenges |
-| ⚡ **Full async parity** | 33 sync + 33 async modules — complete feature match |
+| ⚡ **Full async parity** | 33 sync + 34 async lazy modules (33 async API mirrors + `batch`) |
 | 📦 **Pydantic models** | Typed returns, dict-like access, backward compatible |
-| 🤖 **AI Agent** | 13+ providers, 162 tools, natural language control, memory, webhooks |
+| 🤖 **AI Agent** | 11 AI providers, 162 tools, natural language control, memory, webhooks |
 | 📊 **Advanced tools** | Analytics, Export, Growth, Automation, Monitor, Pipeline, Diagnostics |
 | 🔬 **Diagnostics** | 41-method health check (sync+async), CLI support, JSON output |
 | 🏗️ **Core infra** | Circuit breaker, token bucket, response cache, connection pool, metrics, structured logging |
 | ✅ **CI/CD** | GitHub Actions — lint, test (4 Python versions), security, build |
-| 🧪 **6242 tests** | pytest-cov, comprehensive unit & integration tests |
+| 🧪 **6280 tests** | pytest, comprehensive unit, contract, and AST invariant tests |
 
 ## Core Infrastructure (v1.1.88)
 
-InstaHarvest v2 now includes an enterprise-grade infrastructure layer in the `core/` package with zero external runtime dependencies:
+InstaHarvest v2 includes an infrastructure layer in `instaharvest_v2.core` with zero external runtime dependencies:
 
 | Component | Purpose |
 | --------- | ------- |
-| **CircuitBreaker** | Per-endpoint three-state failure isolation (CLOSED → OPEN → HALF_OPEN). Used by HttpClient and AsyncHttpClient to prevent cascading failures. |
-| **TokenBucketLimiter** | O(1) rate limiting with burst capacity, replacing the previous sliding-window deque scan. Sync + async variants. |
-| **ResponseCache** | LRU + TTL cache for anonymous API calls (`get_profile`, `get_post_by_shortcode`). Supports stale-while-revalidate. |
-| **ConnectionPool** | curl_cffi session pooling with health tracking and automatic recycling of unhealthy connections. |
-| **Metrics** | Prometheus-compatible counters, gauges, and histograms. In-process collection with no external dependencies. |
+| **CircuitBreaker** | Per-endpoint three-state failure isolation (`CLOSED` → `OPEN` → `HALF_OPEN`). Active in `HttpClient` and `AsyncHttpClient` to prevent cascading failures. |
+| **TokenBucketLimiter** | O(1) sync + async token bucket rate limiter with burst capacity available in `core/` alongside `HttpClient`'s sliding-window `RateLimiter`. |
+| **ResponseCache** | LRU + TTL cache active in sync `AnonClient` (`PublicAPI.get_profile`, `PublicAPI.get_post_by_shortcode`) with stale-while-revalidate support. |
+| **ConnectionPool** | `curl_cffi` session pool helper with health tracking in `core/`. |
+| **Metrics** | Prometheus-compatible counters, gauges, and histograms (`metrics` registry). |
 | **StructuredLogger** | JSON log entries with correlation IDs and automatic PII redaction. |
 
 ### Lazy-Loading Architecture
 
-The `Instagram` class now lazy-loads all 33 API modules on first access via `__getattr__` and the `_lazy_modules.py` registry. This eliminates ~200-400ms startup time from eager imports and reduces the memory footprint when only a subset of modules is used.
+Both `Instagram` (33 modules) and `AsyncInstagram` (34 modules, including `batch`) lazy-load all API modules on first attribute lookup via `__getattr__` and the `_lazy_modules.py` registry (`resolve_lazy_module`). This avoids upfront import overhead and reduces memory footprint when only a subset of modules is used.
 
 ### Metrics & Observability
 
@@ -708,8 +708,8 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 
 **Current status:**
 
-- ✅ 6242 tests passed (43 skipped)
-- 📊 ~83.6% code coverage (core package; `agent/` and `web/` excluded from measurement)
+- ✅ 6280 tests passed (41 skipped)
+- 📊 ~83.6% CI coverage baseline (core package; `agent/` and `web/` excluded; >70% fail-under gate)
 
 ---
 
@@ -717,14 +717,15 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 
 ```text
 instaharvest_v2/
-├── instagram.py           # Main class (sync)
-├── async_instagram.py     # Main class (async)
-├── client.py              # HTTP client (curl_cffi)
-├── async_client.py        # Async HTTP client
+├── instagram.py           # Main class (sync, lazy-loading)
+├── async_instagram.py     # Main class (async, lazy-loading)
+├── client.py              # HTTP client (curl_cffi + HttpClient.request)
+├── async_client.py        # Async HTTP client (+ AsyncHttpClient.request)
 ├── anon_client.py         # Anonymous scraping client (sync)
 ├── async_anon_client.py   # Anonymous scraping client (async)
+├── http_utils.py          # Shared URL normalization, headers, maybe_await()
 ├── diagnostics.py         # API diagnostics (41 methods, sync+async)
-├── parsers.py             # Shared parser functions (8 standalone)
+├── parsers.py             # Shared parser functions (20 functions)
 ├── challenge.py           # Challenge auto-resolver
 ├── anti_detect.py         # Anti-detection system
 ├── smart_rotation.py      # Multi-signal rotation coordinator
@@ -733,18 +734,21 @@ instaharvest_v2/
 ├── rate_limiter.py        # Rate limiting
 ├── multi_account.py       # Multi-account manager
 ├── exceptions.py          # Error classes
-├── _lazy_modules.py       # Lazy API module registry
+├── _lazy_modules.py       # Lazy API module registry (sync + async)
 ├── _endpoint_keys.py      # URL normalization for circuit breakers/metrics
 ├── _http_metrics.py       # Pre-declared HTTP metric instances
 ├── models/                # Pydantic models
-│   ├── user.py            # User, UserShort, BioParsed
+│   ├── base.py            # InstaModel base class
+│   ├── common.py          # ImageVersion, Pagination
+│   ├── user.py            # User, UserShort, Contact, BioParsed
 │   ├── media.py           # Media, Caption
 │   ├── comment.py         # Comment
-│   ├── story.py           # Story, Highlight
+│   ├── story.py           # Story, Highlight, StorySticker
 │   ├── direct.py          # DirectThread, DirectMessage
 │   ├── location.py        # Location
-│   ├── notification.py    # Notification models
-│   └── public_data.py     # PublicProfile, PublicPost
+│   ├── hashtag.py         # HashtagSearchResult
+│   ├── notification.py    # Notification, NotifInbox
+│   └── public_data.py     # PublicProfile, PublicPost, HashtagPost, etc.
 ├── core/                  # Infrastructure layer (v1.1.88)
 │   ├── circuit_breaker.py # Three-state failure isolation
 │   ├── token_bucket.py    # O(1) rate limiting with burst
@@ -752,7 +756,7 @@ instaharvest_v2/
 │   ├── connection_pool.py # curl_cffi session pooling
 │   ├── metrics.py         # Prometheus-compatible metrics
 │   └── structured_logging.py # JSON logs with correlation IDs
-├── api/                   # API modules (33 sync + 33 async)
+├── api/                   # API modules (31 sync + 2 subpkgs = 33 lazy; 33 async mirrors)
 │   ├── users.py           # User profiles
 │   ├── media.py           # Post interactions
 │   ├── feed.py            # User feeds
@@ -762,8 +766,14 @@ instaharvest_v2/
 │   ├── direct.py          # Direct messages
 │   ├── upload.py          # Photo/video upload
 │   ├── download.py        # Media downloads
-│   ├── auth/              # Login, session, encryption
-│   ├── graphql/           # GraphQL v2 (doc_id transport)
+│   ├── hashtags.py        # Hashtag info & sections
+│   ├── insights.py        # Account & media insights
+│   ├── location.py        # Location feeds & info
+│   ├── collections.py     # Saved collections
+│   ├── notifications.py   # Activity & inbox notifications
+│   ├── public.py          # Anonymous public API
+│   ├── auth/              # Login, session, encryption (5 modules)
+│   ├── graphql/           # GraphQL v2 (doc_id transport, 7 modules)
 │   ├── analytics.py       # Engagement analytics
 │   ├── export.py          # CSV/JSON export
 │   ├── growth.py          # Smart follow/unfollow
@@ -779,11 +789,11 @@ instaharvest_v2/
 │   ├── ab_test.py         # A/B testing
 │   ├── public_data.py     # Public data analytics
 │   ├── discover.py        # Similar user discovery
-│   └── async_*.py         # All 33 async mirrors
+│   └── async_*.py         # 33 async_*.py mirrors (+ batch.py on AsyncInstagram)
 ├── agent/                 # AI Agent system
 │   ├── core.py            # InstaAgent main class
-│   ├── providers/         # AI providers (13: Gemini, OpenAI, Claude, etc.)
-│   ├── tools/             # 162 built-in tools
+│   ├── providers/         # 11 AI providers across 4 adapter modules
+│   ├── tools/             # 162 built-in tools across 13 modules
 │   │   ├── instagram_tools.py  # Instagram tools (profile, posts, reels, comments)
 │   │   ├── media_tools.py      # Media & social tools (download, follow, like)
 │   │   ├── file_tools.py       # File I/O tools
@@ -793,6 +803,8 @@ instaharvest_v2/
 │   │   ├── auth_tools.py       # Login, validate, logout
 │   │   ├── analytics_tools.py  # Analytics, insights, audience, A/B test
 │   │   ├── automation_tools.py # Automation, scheduler, monitor
+│   │   ├── export_tools.py     # CSV/JSON export tools
+│   │   ├── growth_tools.py     # Growth follow/unfollow tools
 │   │   ├── pipeline_tools.py   # Pipeline, bulk download, AI suggest
 │   │   └── utility_tools.py    # JSON, CSV, calculate, merge, download
 │   ├── memory.py          # Conversation memory
@@ -802,7 +814,7 @@ instaharvest_v2/
 │   ├── webhook.py         # Notifications (Telegram, Discord)
 │   ├── cost_tracker.py    # Token usage & pricing
 │   └── vision.py          # Multimodal image analysis
-tests/                     # 6242 tests
+tests/                     # 6280 tests
 docs/                      # MkDocs documentation
 .github/workflows/         # CI/CD pipeline
 ```

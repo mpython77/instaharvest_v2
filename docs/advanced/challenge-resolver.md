@@ -12,8 +12,8 @@ The simplest method is providing a callback function during setup:
 from instaharvest_v2 import Instagram
 from instaharvest_v2.exceptions import ChallengeRequired
 
-def prompt_for_code(challenge_type, contact_point):
-    print(f"Instagram sent a code to your {challenge_type}: {contact_point}")
+def prompt_for_code(ctx):
+    print(f"Instagram sent a code to {ctx.contact_point} ({ctx.challenge_type})")
     return input("Enter the 6-digit code here: ")
 
 ig = Instagram(challenge_callback=prompt_for_code)
@@ -21,21 +21,18 @@ ig = Instagram(challenge_callback=prompt_for_code)
 try:
     ig.login("my_username", "my_password")
 except ChallengeRequired as e:
-    # InstaHarvest v2 will automatically trigger the prompt_for_code callback, 
-    # submit the returned code, and if successful, complete the login.
-    print("Handled challenge successfully!")
+    # Raised if challenge resolution cannot be completed automatically
+    print(f"Challenge intervention needed: {e.challenge_url}")
 ```
 
-## Headless Auto-Resolver (Gmail)
+## Headless Auto-Resolver (Gmail IMAP)
 
-If the account uses Gmail, you can use the `EmailVerifier` module to automatically scrape the code from the inbox without any prompts.
+If the account uses Gmail, you can use `EmailVerifier` with a **Gmail App Password** over IMAP (`imap.gmail.com:993`) to read the verification code automatically without interactive prompts.
 
-### 1. Setup Google Cloud API
+### 1. Create a Gmail App Password
 
-1. Go to Google Cloud Console.
-2. Enable the **Gmail API**.
-3. Create an OAuth 2.0 Client ID (Desktop App).
-4. Download `credentials.json` and place it in your project root.
+1. Enable 2-Step Verification on your Google Account.
+2. Open [Google App Passwords](https://myaccount.google.com/apppasswords) and generate a 16-character app password.
 
 ### 2. Configure the Auto-Resolver
 
@@ -43,19 +40,19 @@ If the account uses Gmail, you can use the `EmailVerifier` module to automatical
 from instaharvest_v2 import Instagram
 from instaharvest_v2.email_verifier import EmailVerifier
 
-# 1. Init verifier
-verifier = EmailVerifier("credentials.json", "token.json")
+# 1. Init IMAP verifier
+verifier = EmailVerifier("you@gmail.com", "your-16-char-app-password")
 
-def auto_gmail_resolve(ctype, contact):
-    return verifier.get_instagram_code(wait_time=30)
+def auto_gmail_resolve(ctx):
+    return verifier.get_instagram_code(max_wait=60, poll_interval=5)
 
 # 2. Bind to Instagram object
 ig = Instagram(challenge_callback=auto_gmail_resolve)
 
 # 3. Login
 ig.login("my_user", "my_pass")
-# If it hits a challenge, it will wait up to 30s, read the Gmail inbox, 
-# extract the 6 digits, and resume!
+# If a challenge triggers, it polls Gmail IMAP for up to 60s,
+# extracts the 6-digit code, and submits it automatically.
 ```
 
 ## Supported Challenge Types

@@ -1,67 +1,59 @@
 # Multi-Account
 
-For automation tools, running campaigns from a single account is risky. `MultiAccount` is a robust daemon-like structure that spins up parallel headless workers, assigning specific jobs to specific accounts.
+Running heavy workloads from a single account increases rate-limit and checkpoint exposure. `MultiAccountManager` manages a pool of `Instagram` sessions with rotation, cooldowns, and health checks.
 
 ## Quick Example
 
 ```python
-from instaharvest_v2.multi_account import MultiAccountManager
+from instaharvest_v2 import MultiAccountManager
 
-# Setup 3 worker accounts
 manager = MultiAccountManager()
-manager.load_sessions([
-    "session_bot1.json",
-    "session_bot2.json",
-    "session_bot3.json"
-])
+manager.add_account("account1.env")
+manager.add_account("account2.env")
 
-# Tell Bot 1 and Bot 2 to scrape profile followers
-manager.assign_task(
-    accounts=["session_bot1", "session_bot2"],
-    action="scrape_followers",
-    target="cristiano"
+# Or register existing Instagram instances directly:
+# manager.add_instance(ig_client, name="bot_3")
+
+# Execute an action across all healthy accounts (round-robin rotation)
+results = manager.round_robin(
+    lambda ig: ig.users.get_by_username("cristiano")
 )
+for item in results:
+    print(item["username"], item["success"])
 
-# Tell Bot 3 to like a specific post
-manager.assign_task(
-    accounts=["session_bot3"],
-    action="like_media",
-    target="1234567890"
-)
-
-# Start all workers concurrently
-manager.start_workers()
+# Pick a single account via random or least-used selection
+ig = manager.random_pick()
+ig_least = manager.least_used()
 ```
 
-## MultiAccount vs SmartRotation
+## Rotation & Execution Strategies
 
-Both handle multiple accounts, but serve different purposes:
+| Method | Behavior |
+|---|---|
+| `add_account(env_file, debug=False)` | Loads `.env` credentials via `Instagram.from_env()` into the pool |
+| `add_instance(ig_instance, name="")` | Registers an already-constructed `Instagram` client |
+| `round_robin(action, skip_errors=True)` | Runs `action(ig)` across available accounts in rotation |
+| `random_pick()` | Returns a random healthy `Instagram` instance |
+| `least_used()` | Returns the healthy instance with lowest `use_count` |
+| `execute(action, strategy="round_robin", ...)` | Unified execution wrapper with cooldown on errors |
+| `healthcheck()` | Verifies health across registered accounts |
+| `close_all()` | Closes sessions across all managed instances |
 
-| Feature | SmartRotation | MultiAccountManager |
+## `SmartRotationCoordinator` vs `MultiAccountManager`
+
+| Feature | `SmartRotationCoordinator` | `MultiAccountManager` |
 |---|---|---|
-| **Goal** | Distribute read operations to prevent rate-limits. | Run specific complex actions from specific profiles. |
-| **Logic** | Returns the "healthiest" client for the next request. | Runs background threads permanently attached to one profile. |
-| **Use Case** | Mass Profile Scraping, Data Harvesting. | Auto-DMs, Engagement Pods, Mass Follow scripts. |
+| **Goal** | Coordinate proxy + browser identity + TLS per request | Manage multiple authenticated `.env` / `Instagram` accounts |
+| **Granularity** | Per-HTTP attempt inside `HttpClient` / `AsyncHttpClient` | Account-level pool selection & error cooldowns |
+| **Use Case** | Proxy scoring, identity locking, error matrix | Multi-account execution (`round_robin`, `least_used`, `healthcheck`) |
 
-## Creating Custom Actions
-
-The MultiAccount Manager works on string-based actions mapped to functional callbacks:
+## Cleanup
 
 ```python
-def my_custom_like_loop(ig_client, task_data):
-    """
-    ig_client is the dedicated Instagram() object for this worker.
-    task_data is the target payload.
-    """
-    media_id = task_data.get("target")
-    ig_client.media.like(media_id)
-    print(f"[{ig_client.username}] Liked {media_id}!")
+# Inspect account pool status
+for info in manager.accounts:
+    print(info["username"], info["is_healthy"], info["use_count"])
 
-# Register action
-manager.register_action("like_loop", my_custom_like_loop)
-
-# Trigger Action
-manager.assign_task(accounts=["bot1"], action="like_loop", target="ABC123XYZ")
+# Close all managed clients
+manager.close_all()
 ```
-
-For extremely complex interactions, MultiAccount integrates cleanly with the builtin `SchedulerAPI`.

@@ -72,7 +72,7 @@ All endpoints that exist on `Instagram` exist on `AsyncInstagram` but require an
 |---|---|
 | `ig.users.get_by_id(pk)` | `await ig.users.get_by_id(pk)` |
 | `ig.media.like(pk)` | `await ig.media.like(pk)` |
-| `ig.feed.user(pk)` | `await ig.feed.user(pk)` |
+| `ig.feed.get_user_feed(pk)` | `await ig.feed.get_user_feed(pk)` |
 | `ig.public.search("query")` | `await ig.public.search("query")` |
 
 ## When NOT to use Async

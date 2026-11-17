@@ -63,13 +63,14 @@ print(f"Got {len(all_posts)} posts")
 
 ---
 
-### get_timeline(max_id=None)
+### get_timeline(count=12, cursor=None)
 
 Get your home timeline feed (posts from people you follow).
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `max_id` | `str` | ❌ | `None` | Pagination token |
+| `count` | `int` | ❌ | 12 | Posts per page |
+| `cursor` | `str` | ❌ | `None` | Pagination cursor |
 
 **Returns:** `dict`
 
@@ -79,40 +80,43 @@ timeline = ig.feed.get_timeline()
 
 ---
 
-### get_liked(max_id=None)
+### get_liked(count=20, cursor=None)
 
 Get posts you have liked (via GraphQL).
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `max_id` | `str` | ❌ | `None` | Pagination token |
+| `count` | `int` | ❌ | 20 | Posts per page |
+| `cursor` | `str` | ❌ | `None` | Pagination cursor |
 
 **Returns:** `dict`
 
 ---
 
-### get_saved(max_id=None)
+### get_saved(count=20, cursor=None)
 
 Get your saved/bookmarked posts (via GraphQL).
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `max_id` | `str` | ❌ | `None` | Pagination token |
+| `count` | `int` | ❌ | 20 | Posts per page |
+| `cursor` | `str` | ❌ | `None` | Pagination cursor |
 
 **Returns:** `dict`
 
 ---
 
-### get_tag_feed(hashtag, max_id=None)
+### get_tag_feed(hashtag, count=20, cursor=None)
 
 Get posts by hashtag.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `hashtag` | `str` | ✅ | — | Hashtag name (without #) |
-| `max_id` | `str` | ❌ | `None` | Pagination cursor |
+| `count` | `int` | ❌ | 20 | Posts per page |
+| `cursor` | `str` | ❌ | `None` | Pagination cursor |
 
-**Returns:** `dict` with `items`, `more_available`, `next_max_id`
+**Returns:** `dict` with `posts`, `has_next`, `end_cursor` (or REST `items`)
 
 ```python
 feed = ig.feed.get_tag_feed("fashion")
@@ -133,13 +137,14 @@ Get posts by location.
 
 ---
 
-### get_reels_feed(max_id=None)
+### get_reels_feed(count=20, cursor=None)
 
 Get trending reels (Explore reels tab).
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `max_id` | `str` | ❌ | `None` | Pagination cursor |
+| `count` | `int` | ❌ | 20 | Reels per page |
+| `cursor` | `str` | ❌ | `None` | Pagination cursor |
 
 **Returns:** `dict`
 

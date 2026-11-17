@@ -16,7 +16,7 @@ print(f"Downloaded: {result['downloaded']} files")
 
 ## Methods
 
-### all_posts(username, output_dir, max_posts=0)
+### all_posts(username, output_dir, max_count=0, skip_existing=True, on_progress=None)
 
 Download all posts (photos + videos).
 
@@ -24,7 +24,8 @@ Download all posts (photos + videos).
 |---|---|---|---|
 | `username` | `str` | — | Target account |
 | `output_dir` | `str` | — | Save directory |
-| `max_posts` | `int` | 0 | Limit (0 = all) |
+| `max_count` | `int` | 0 | Limit (0 = all) |
+| `skip_existing` | `bool` | `True` | Skip already downloaded files |
 
 **Output structure:**
 

@@ -90,7 +90,7 @@ Ranks and compares multiple profiles based on followers and engagement metrics.
 
 ```python
 metrics = ig.public_data.compare_profiles(["nike", "adidas", "puma"])
-print(metrics["ranks"])
+print(metrics["rankings"])
 ```
 
 ### `engagement_analysis(username: str) -> Dict`
@@ -99,34 +99,34 @@ Calculates average likes, comments, and assigns an engagement score.
 
 ```python
 analysis = ig.public_data.engagement_analysis("nike")
-print(analysis["rating"]) # Output: 'Excellent', 'Good', etc.
+print(analysis["rating"]) # Output: 'excellent', 'good', 'average', or 'low'
 ```
 
-### `track_profile(username: str) -> ProfileSnapshot`
+### `track_profile(username: str) -> Dict`
 
-Records the profile's current state and saves it to a local historical database (`.InstaHarvest v2/public_history.json`). Allowing you to measure follower growth over time.
+Records a profile snapshot in memory (`get_tracking_history(username)`) and returns `{profile, snapshot, total_snapshots}` (along with `growth` when 2+ snapshots exist), allowing you to measure follower growth across calls.
 
 ---
 
 ## 📤 Export & Supermetrics Reports
 
-### `build_report(usernames, top_hashtags, recent_hashtags) -> PublicDataReport`
+### `build_report(usernames=None, hashtags=None, max_posts=12) -> PublicDataReport`
 
 Builds an aggregated report containing profiles, posts, and hashtag posts.
 
 ```python
 report = ig.public_data.build_report(
     usernames=["nike", "adidas"],
-    top_hashtags=["shoes"]
+    hashtags=["shoes"],
 )
 ```
 
-### `export_report(report, format, output_file)`
+### `export_report(report, format="json", filepath=None)`
 
 Exports the built report to a specific file format (`json`, `csv`, or `jsonl`).
 
 ```python
-ig.public_data.export_report(report, "csv", "my_analytics.csv")
+ig.public_data.export_report(report, format="csv", filepath="my_analytics.csv")
 ```
 
 Or you can use the object mappings to upload standard tables directly:

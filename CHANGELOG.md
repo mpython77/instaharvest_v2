@@ -2,22 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Architecture Hardening & Async Parity**
+  - Unified `HttpClient.request()` and `AsyncHttpClient.request()` via shared `normalize_api_url()` and `maybe_await()` in `http_utils.py`.
+  - Enabled lazy-loading parity on `AsyncInstagram` via `_lazy_modules.py` (`LAZY_ASYNC_API_MODULES`, `LAZY_ASYNC_MODULE_NAMES`, shared `resolve_lazy_module()`).
+  - Added `instaharvest_v2/agent/__init__.py` lazy exports (`InstaAgent`, `AgentResult`, `Permission`, `AgentCoordinator`).
+  - Added `verify_session()` and `AsyncInstagram.warm_up()` plus SSR/Polaris fallback parsers in `parsers.py`.
+  - Added `tests/test_architecture_hardening.py`, `tests/test_live_scan_fixes.py`, and `tests/test_ssr_sjs_parsers.py`.
+
 ### Fixed
 
+- **Async runtime safety & contracts**
+  - Replaced blocking `time.sleep` calls inside `async def` across `instaharvest_v2/api/async_*.py` (including `async_auth.py`) with `await asyncio.sleep(...)` and awaited coroutine sub-API calls via `await maybe_await(...)`.
+  - Fixed `AsyncSchedulerAPI` and `AsyncABTestAPI` loop-free initialization (`_load_sync` / `_load_jobs_sync`), `SchedulerJob.to_dict()` await in `_save_jobs()`, and async task scheduling in `start()`/`stop()`.
+  - Fixed `filters.matches(...)` unawaited calls in `AsyncExportAPI` and `AsyncGrowthAPI`.
+  - Aligned `UploadAPI`/`AsyncUploadAPI` (`photo`, `video`, `reel`), `StoriesAPI`/`AsyncStoriesAPI` (`get_highlights`, `upload_photo`, `upload_video`), `DownloadAPI`/`AsyncDownloadAPI` (`url_to_file`), and `HashtagsAPI`/`AsyncHashtagsAPI` (`get_sections`, `get_recent_media`) method contracts.
 - **proxy_health.py** — Removed a dead `import requests` inside `ProxyHealthChecker.check_all()`. The method performs its checks via `curl_cffi` (in `_check_proxy`), so the unused import served no purpose and raised `ModuleNotFoundError` whenever `requests` was not installed.
-- **Test suite** — Repaired 29 tests that broke after the v1.1.88 enterprise-architecture refactor but were not updated:
+- **Test suite** — Repaired 29 tests that broke after the v1.1.88 enterprise-architecture refactor and added regression tests:
   - `test_100_batch12.py` — inject the new `_breakers` (`CircuitBreakerRegistry`) attribute into the hand-built `AsyncHttpClient`, which `_request()` now requires.
   - `test_api_methods.py`, `test_anon_remaining.py`, `test_public_bulk_monitor_sched.py` — `PublicAPI` reads now route through `client.cached_call(key, fetch_fn)`; the mocked client is configured to execute `fetch_fn` so the underlying `*_chain` mocks run.
   - `test_session_manager.py` — `get_session()` no longer increments `total_requests` (now done by `report_request()`); the test was updated to the new contract.
-  - Result: full suite is back to **6242 passed, 43 skipped, 0 failed**.
+  - Result: full suite is at **6280 passed, 41 skipped, 0 failed**.
 
 ### Documentation
 
-- **README.md** — Corrected metrics to match the actual codebase:
-  - Coverage badge/text `86% / ~86.4%` → `~83.6%` (core package; `agent/` and `web/` are excluded from measurement).
-  - Agent tools `161` → `162` (actual `TOOL_HANDLERS` count) in the badge, intro, agent section, feature table, and project tree.
-  - Public Anonymous API header `23 methods` → `22 methods` (matches the 22 data methods and the diagnostics count; `cache_stats`/`invalidate_cache`/`request_count` are infra helpers).
-  - GraphQL doc_ids header `16 verified` → `16 documented of 36 registered` (the `DOC_IDS` registry holds 36 entries, several marked `UNVERIFIED`).
+- **README.md & docs/** — Synchronized codebase metrics, API method/parameter signatures, model fields, `core/` wiring details, and `agent/` provider/tool docs with current code (`33 sync + 34 async` lazy modules, `162` agent tools across `13` tool modules, `11` AI providers, `6280 tests passed`).
 
 ---
 

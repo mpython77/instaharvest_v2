@@ -72,24 +72,23 @@ If you started with `from_session_file`, InstaHarvest v2 will attempt to transpa
 
 ## Challenge Handling
 
-When logging in from a new IP, Instagram often asks for email or SMS verification. InstaHarvest v2 includes the `ChallengeHandler` class to resolve these:
+When logging in from a new IP, Instagram often asks for email or SMS verification. Pass `challenge_callback` when creating `Instagram` so `ChallengeHandler` resolves challenges automatically:
 
 ```python
 from instaharvest_v2 import Instagram, ChallengeHandler
-from instaharvest_v2.exceptions import ChallengeRequired
 
-ig = Instagram()
+def prompt_code(ctx):
+    return input(f"Code sent to {ctx.contact_point} ({ctx.challenge_type}): ")
 
-try:
-    ig.login("user", "pass")
-except ChallengeRequired as e:
-    print(f"Challenge URL: {e.challenge_url}")
-    print(f"Challenge type: {e.challenge_type}")
-    
-    # Use the ChallengeHandler to resolve
-    handler = ChallengeHandler(ig._client)
-    result = handler.resolve(e.response)
-    print(f"Result: {result}")
+ig = Instagram(challenge_callback=prompt_code)
+ig.login("user", "pass")
+```
+
+For direct low-level control:
+
+```python
+handler = ChallengeHandler(code_callback=prompt_code)
+# handler.resolve(session, challenge_url, csrf_token) -> ChallengeResult
 ```
 
 For headless auto-resolution using Gmail, see [Challenge Resolver](../advanced/challenge-resolver.md).

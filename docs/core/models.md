@@ -33,7 +33,7 @@ user = ig.users.get_by_username("cristiano")
 | `username` | `str` | Username |
 | `full_name` | `str` | Display name |
 | `biography` | `str` | Bio text |
-| `bio_links` | `list` | Links in bio |
+| `bio` | `BioParsed` | Parsed bio mentions, hashtags, URLs, `bio_links` |
 | `profile_pic_url` | `str` | Profile picture URL |
 | `profile_pic_url_hd` | `str` | HD profile picture |
 | `followers` | `int` | Follower count |
@@ -57,19 +57,19 @@ media = ig.media.get_by_shortcode("ABC123")
 | Field | Type | Description |
 |---|---|---|
 | `pk` | `int` | Media ID |
-| `shortcode` | `str` | URL shortcode |
+| `code` | `str` | URL shortcode (`media.url` builds full URL) |
 | `media_type` | `int` | 1=photo, 2=video, 8=carousel |
-| `caption` | `Caption` | Caption object |
+| `caption` | `Caption` | Caption object (`caption_text` for raw text) |
 | `like_count` | `int` | Number of likes |
 | `comment_count` | `int` | Number of comments |
+| `play_count` | `int` | Play count (video/reel) |
+| `view_count` | `int` | View count |
 | `taken_at` | `datetime` | Post timestamp |
-| `image_versions` | `list` | Image URLs + sizes |
-| `video_url` | `str` | Video URL (if video) |
-| `video_duration` | `float` | Duration in seconds |
-| `video_view_count` | `int` | View count |
-| `carousel_media` | `list` | Child media items |
-| `location` | `Location` | Tagged location |
-| `usertags` | `list` | Tagged users |
+| `image_versions` | `list[ImageVersion]` | Image URLs + sizes (`media.best_image_url` helper) |
+| `video_versions` | `list[ImageVersion]` | Video URLs + sizes (`media.best_video_url` helper) |
+| `carousel_media` | `list[Media]` | Child media items |
+| `location` | `dict` | Tagged location |
+| `tagged_users` | `list[UserShort]` | Tagged users |
 
 ## Dict-Like Access
 

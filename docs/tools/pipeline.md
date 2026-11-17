@@ -19,7 +19,7 @@ print(f"Rows: {result['total_rows']}")
 
 ## Methods
 
-### to_sqlite(username, db_path, include_posts=True, include_followers=False, include_following=False)
+### to_sqlite(username, db_path, include_posts=True, include_followers=True, include_following=False)
 
 Stream profile data into a SQLite database.
 
@@ -27,9 +27,9 @@ Stream profile data into a SQLite database.
 |---|---|---|---|
 | `username` | `str` | — | Target account |
 | `db_path` | `str` | — | SQLite file path |
-| `include_posts` | `bool` | True | Include posts |
-| `include_followers` | `bool` | False | Include followers |
-| `include_following` | `bool` | False | Include following |
+| `include_posts` | `bool` | `True` | Include posts |
+| `include_followers` | `bool` | `True` | Include followers |
+| `include_following` | `bool` | `False` | Include following |
 
 **Tables created:**
 
@@ -42,7 +42,7 @@ Stream profile data into a SQLite database.
 
 ---
 
-### to_jsonl(username, file_path, include_posts=True, include_followers=False, max_posts=0)
+### to_jsonl(username, output_path, include_posts=True, include_followers=True, max_posts=100)
 
 Export data as JSONL (one JSON object per line).
 

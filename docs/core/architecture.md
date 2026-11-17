@@ -10,7 +10,7 @@ graph TB
         IG["Instagram / AsyncInstagram"]
     end
     
-    subgraph "API Layer"
+    subgraph "API Layer (Lazy-Loaded)"
         PUB["PublicAPI"]
         USR["UsersAPI"]
         MED["MediaAPI"]
@@ -18,14 +18,16 @@ graph TB
         ST["StoriesAPI"]
         DR["DirectAPI"]
         UP["UploadAPI"]
-        MORE["...17 more"]
+        MORE["...26 more sync / 27 async"]
     end
-    
-    subgraph "Core Layer"
+
+    subgraph "Core & Infrastructure"
         ANON["AnonClient"]
         HTTP["HttpClient"]
         SM["SessionManager"]
         RL["RateLimiter"]
+        CB["CircuitBreaker / Metrics"]
+        RC["ResponseCache"]
     end
     
     subgraph "Infrastructure"
@@ -76,22 +78,25 @@ graph TB
 
 | Module | File | Purpose |
 |---|---|---|
-| **Instagram** | `instagram.py` | Main sync class — unifies all APIs |
-| **AsyncInstagram** | `async_instagram.py` | Main async class — true async I/O |
-| **AnonClient** | `anon_client.py` | Anonymous scraping — 5 strategy chain |
+| **Instagram** | `instagram.py` | Main sync class — lazy-loads all 33 API modules |
+| **AsyncInstagram** | `async_instagram.py` | Main async class — lazy-loads all 34 modules + true async I/O |
+| **AnonClient** | `anon_client.py` | Anonymous scraping — configurable fallback chain + `ResponseCache` |
 | **AsyncAnonClient** | `async_anon_client.py` | Async anonymous scraping |
-| **HttpClient** | `client.py` | Authenticated HTTP client |
-| **AsyncHttpClient** | `async_client.py` | Async authenticated HTTP |
+| **HttpClient** | `client.py` | Authenticated HTTP client + `CircuitBreaker` + metrics |
+| **AsyncHttpClient** | `async_client.py` | Async authenticated HTTP + `CircuitBreaker` + metrics |
+| **HttpUtils** | `http_utils.py` | Shared URL normalization, header builders, and `maybe_await()` |
+| **LazyModules** | `_lazy_modules.py` | Lazy API module registry (`Instagram` + `AsyncInstagram`) |
+| **Core** | `core/` | `CircuitBreaker`, `TokenBucketLimiter`, `ResponseCache`, `ConnectionPool`, `Metrics`, `StructuredLogger` |
 | **SessionManager** | `session_manager.py` | Multi-session management |
 | **ProxyManager** | `proxy_manager.py` | Proxy rotation + scoring |
-| **AntiDetect** | `anti_detect.py` | TLS fingerprint + headers |
-| **RateLimiter** | `rate_limiter.py` | Token bucket rate control |
+| **AntiDetect** | `anti_detect.py` | TLS fingerprint + coherent Chrome headers |
+| **RateLimiter** | `rate_limiter.py` | Thread-safe sliding window rate control |
 | **SpeedModes** | `speed_modes.py` | SAFE/FAST/TURBO/UNLIMITED |
 | **ChallengeHandler** | `challenge.py` | Email/SMS auto-verification |
 | **DeviceFingerprint** | `device_fingerprint.py` | Mobile device simulation |
 | **EventEmitter** | `events.py` | Event hooks system |
 | **Plugin** | `plugin.py` | Plugin architecture |
-| **Strategy** | `strategy.py` | Configurable strategy chain (ProfileStrategy, PostsStrategy) |
+| **Strategy** | `strategy.py` | Configurable strategy chain (`ProfileStrategy`, `PostsStrategy`) |
 
 ## Two Operation Modes
 

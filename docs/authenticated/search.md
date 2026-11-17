@@ -60,17 +60,15 @@ Search hashtags.
 
 ---
 
-### search_places(query, lat=None, lng=None)
+### search_places(query)
 
 Search locations/places.
 
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `query` | `str` | ✅ | Place name |
-| `lat` | `float` | ❌ | Latitude hint |
-| `lng` | `float` | ❌ | Longitude hint |
 
-**Returns:** `dict` with venues list
+**Returns:** `list[dict]` with location venue dicts
 
 ---
 

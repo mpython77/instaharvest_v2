@@ -35,7 +35,7 @@
 
     ---
 
-    31 sync + 31 async modules — complete feature match. `asyncio.gather` for bulk ops.
+    33 sync + 34 async modules (33 async API mirrors + `batch`) — complete feature match. `asyncio.gather` for bulk ops.
 
 - :material-shield-lock:{ .lg .middle } **Anti-Detection**
 
@@ -59,7 +59,7 @@
 
     ---
 
-    Control Instagram with natural language. 13+ AI providers, 161 tools, memory, scheduling, webhooks.
+    Control Instagram with natural language. 11 AI providers, 162 tools, memory, scheduling, webhooks.
 
     [:octicons-arrow-right-24: Learn more](agent/overview.md)
 
@@ -75,7 +75,7 @@
 
     ---
 
-    6242 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build.
+    6280 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build.
 
 </div>
 
@@ -127,7 +127,9 @@ pip install instaharvest-v2[all]      # everything
 
     ig = Instagram.from_env(".env")
     user = ig.users.get_by_username("cristiano")
-    ig.media.like(user.media[0].pk)
+    posts = ig.feed.get_all_posts(user.pk, max_posts=1)
+    if posts:
+        ig.media.like(posts[0].pk)
     ```
 
 === "Async"

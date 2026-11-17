@@ -93,13 +93,14 @@ InstaHarvest v2 automatically retries on transient errors:
 
 ```python
 from instaharvest_v2 import Instagram
+from instaharvest_v2.exceptions import RateLimitError, NetworkError
 from instaharvest_v2.retry import RetryConfig
 
 ig = Instagram(
     retry=RetryConfig(
         max_retries=3,           # Retry up to 3 times
         backoff_factor=2.0,      # Exponential backoff
-        retry_on_status=[429, 500, 502, 503],
+        retry_on={RateLimitError, NetworkError},
     )
 )
 ig.load_session("session.json")

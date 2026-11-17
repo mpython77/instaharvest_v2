@@ -1,81 +1,55 @@
 # Plugin System
 
-InstaHarvest v2 is built around a flexible plugin architecture. Every internal module (UsersAPI, SearchAPI, etc.) is technically a plugin hooked into the core client context.
-
-You can create your own plugins to inject custom middleware, handle state, or automate complex multi-step processes securely.
+InstaHarvest v2 provides a lifecycle hook `Plugin` interface managed by `PluginManager`. Plugins attach via `ig.use(plugin)` and subscribe automatically to `EventEmitter` events (`REQUEST`, `ERROR`, `RETRY`, `RATE_LIMIT`, `CHALLENGE`, `LOGIN_REQUIRED`).
 
 ## Quick Example
 
 ```python
-from instaharvest_v2 import Instagram
-from instaharvest_v2.plugin import Plugin
+from instaharvest_v2 import Instagram, Plugin
 
-class AutoLikerPlugin(Plugin):
-    """Automatically likes any post fetched by get_post_by_shortcode"""
-    
-    name = "auto_liker"
-    
-    def on_attach(self):
-        # Bind to standard client events
-        self.ig.on("api_request_success", self._check_for_posts)
+class RequestLoggerPlugin(Plugin):
+    name = "request_logger"
+    version = "1.0.0"
 
-    def _check_for_posts(self, data):
-        url = data.get("url", "")
-        if "media/info" in url:
-            # Fake parsing to grab the PK and automatically like it
-            # This is an example of intercepting network streams via plugins
-            print("Auto-liker intercepted a media load!")
+    def on_install(self, ig):
+        self.ig = ig
+        print(f"Plugin {self.name} installed!")
+
+    def on_request(self, event):
+        print(f"📡 Request -> {event.endpoint}")
+
+    def on_rate_limit(self, event):
+        print(f"⏳ Rate limited on {event.endpoint} (attempt {event.attempt})")
 
 ig = Instagram.from_env()
-ig.use(AutoLikerPlugin()) # Install the plugin
+ig.use(RequestLoggerPlugin())
 ```
 
-## Building a Basic Plugin
+## Available Lifecycle Hooks
 
-Plugins must subclass `instaharvest_v2.plugin.Plugin` and specify a string `name`. They are automatically injected with the main client instance as `self.ig`.
+Subclass `instaharvest_v2.plugin.Plugin` (re-exported as `instaharvest_v2.Plugin`) and override any of the following hooks:
+
+| Hook | Triggered On | Argument |
+|---|---|---|
+| `on_install(self, ig)` | `ig.use(plugin)` | `Instagram` / `AsyncInstagram` instance |
+| `on_uninstall(self)` | `ig.remove_plugin(name)` | — |
+| `on_request(self, event)` | `EventType.REQUEST` | `EventData` |
+| `on_response(self, event)` | Subscribed response hook | `EventData` |
+| `on_error(self, event)` | `EventType.ERROR` | `EventData` |
+| `on_retry(self, event)` | `EventType.RETRY` | `EventData` |
+| `on_rate_limit(self, event)` | `EventType.RATE_LIMIT` | `EventData` |
+| `on_challenge(self, event)` | `EventType.CHALLENGE` | `EventData` |
+| `on_login_required(self, event)` | `EventType.LOGIN_REQUIRED` | `EventData` |
+
+## Managing Plugins
 
 ```python
-class MyCustomTool(Plugin):
-    name = "my_custom_tool"
-    
-    def on_attach(self):
-        print(f"Plugin {self.name} attached to client!")
-        
-    def do_something_cool(self):
-        # Access the main IG client directly
-        return self.ig.users.get_by_username("cristiano")
+# Access an installed plugin via PluginManager
+plugin = ig._plugin_mgr.get_plugin("request_logger")
+
+# List all installed plugins
+installed = ig._plugin_mgr.list_plugins()
+
+# Uninstall by name
+ig.remove_plugin("request_logger")
 ```
-
-Once a plugin is injected via `ig.use()`, it becomes accessible via standard dot-notation using its `name`:
-
-```python
-ig.use(MyCustomTool())
-
-user = ig.my_custom_tool.do_something_cool()
-```
-
-## Writing Custom APIs
-
-It's recommended to write any complex scripts you use frequently as a Plugin to easily bundle and distribute them without hacking the core library:
-
-```python
-class CleanerPlugin(Plugin):
-    name = "cleaner"
-    
-    def unfollow_non_followers(self):
-        followers = self.ig.friendships.get_followers(self.ig.user_id)
-        following = self.ig.friendships.get_following(self.ig.user_id)
-        
-        follower_pks = {u.pk for u in followers}
-        for u in following:
-            if u.pk not in follower_pks:
-                self.ig.friendships.unfollow(u.pk)
-                print(f"Unfollowed {u.username}")
-
-ig.use(CleanerPlugin())
-ig.cleaner.unfollow_non_followers()
-```
-
-## Default Core Plugins
-
-InstaHarvest v2 uses the plugin system internally for extending "Tools" (like Batch, Automation, Scheduler). If you examine the code for `GrowthAPI`, you will see it relies heavily on the `Plugin` class structure.

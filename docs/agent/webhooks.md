@@ -147,12 +147,12 @@ scheduler.task_count   # int
 
 ### Persistence
 
-Schedule is automatically saved to `.InstaHarvest v2_schedule.json` and restored on restart:
+Schedule is automatically saved to `.instaharvest_v2_schedule.json` and restored on restart:
 
 ```python
 scheduler = AgentScheduler(
     agent,
-    persist_path=".InstaHarvest v2_schedule.json",  # Custom path
+    persist_path=".instaharvest_v2_schedule.json",  # Custom path
 )
 ```
 

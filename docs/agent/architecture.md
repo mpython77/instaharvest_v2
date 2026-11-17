@@ -21,7 +21,7 @@ graph TB
         Claude["Claude"]
         DeepSeek["DeepSeek"]
         Ollama["Ollama"]
-        More["+ 8 more"]
+        More["+ 6 more"]
     end
 
     Provider --- Providers
@@ -42,9 +42,9 @@ graph TB
 | `vision.py` | `VisionAnalyzer` | Image analysis (multimodal) |
 | `webhook.py` | `WebhookNotifier` | Telegram/Discord/Email notifications |
 | `scheduler.py` | `AgentScheduler` | Cron-like task scheduling |
-| `tools/` | `TOOL_HANDLERS` | 161 built-in tool implementations across 10 modules |
+| `tools/` | `TOOL_HANDLERS` | 162 built-in tool implementations across 13 modules |
 | `knowledge.py` | `SYSTEM_PROMPT` | Full InstaHarvest v2 knowledge base |
-| `providers/` | `BaseProvider` | 14 AI provider adapters |
+| `providers/` | `BaseProvider` | 4 adapter classes supporting 11 AI providers |
 | `cli.py` | `main()` | Terminal interface |
 | `web.py` | `create_app()` | FastAPI web UI |
 
@@ -59,7 +59,7 @@ sequenceDiagram
 
     U->>A: agent.ask("Get Cristiano's followers")
     A->>L: System prompt + user message
-    L-->>A: tool_call: run_InstaHarvest v2_code
+    L-->>A: tool_call: run_instaharvest_v2_code
     A->>A: Permission check ✅
     A->>E: Execute code in sandbox
     E-->>A: ExecutionResult (output, variables)
@@ -74,7 +74,7 @@ sequenceDiagram
 
 `SafeExecutor` provides sandboxed code execution:
 
-- ✅ **Whitelisted imports only**: `json`, `csv`, `datetime`, `math`, `re`, `collections`, `statistics`, `InstaHarvest v2`
+- ✅ **Whitelisted imports only**: `json`, `csv`, `math`, `re`, `datetime`, `time`, `os`, `pathlib`, `collections`, `itertools`, `functools`, `typing`, `urllib`, `openpyxl`, `instaharvest_v2`
 - ❌ **Blocked**: `subprocess`, `os.system`, `eval`, `exec`, `socket`, `ctypes`, `pickle.loads`
 - 🔒 **File access**: Read/write only in current directory
 - ⏱️ **Timeout**: Configurable (default 30s)

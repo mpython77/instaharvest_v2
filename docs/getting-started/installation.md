@@ -30,6 +30,7 @@ instaharvest-v2 automatically installs these:
 | `python-dotenv` | `.env` file loading |
 | `pynacl` | NaCl encrypted password login |
 | `cryptography` | Cryptographic operations |
+| `orjson` | Fast JSON serialization/parsing |
 
 ## Verify Installation
 
@@ -45,7 +46,7 @@ print(instaharvest_v2.__version__)
 pip install instaharvest-v2[agent]    # openai, google-genai, anthropic, rich
 
 # Web playground (FastAPI)
-pip install instaharvest-v2[web]      # fastapi, uvicorn + agent deps
+pip install instaharvest-v2[web]      # fastapi, uvicorn, openai, google-genai, anthropic
 
 # Development tools
 pip install instaharvest-v2[dev]      # pytest, pytest-asyncio, pytest-cov
