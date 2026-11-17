@@ -188,7 +188,7 @@ def handle_find_lookalike_audience(args: Dict, ig=None, is_logged_in=False, **kw
         if not username:
             return json.dumps({"error": "username is required"})
 
-        result = ig.audience.find_lookalike(username, max_count=max_count)
+        result = ig.audience.find_lookalike(username, count=max_count)
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -249,7 +249,19 @@ def handle_create_ab_test(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
         if not variants or len(variants) < 2:
             return json.dumps({"error": "At least 2 variants required"})
 
-        result = ig.ab_test.create(variants=variants, metric=metric, description=description)
+        if isinstance(variants, list):
+            variants_dict = {}
+            for i, v in enumerate(variants):
+                if isinstance(v, dict):
+                    key = str(v.get("name") or f"Variant {i + 1}")
+                    variants_dict[key] = v
+                else:
+                    label = str(v)
+                    variants_dict[label] = {"caption": label}
+        else:
+            variants_dict = variants if isinstance(variants, dict) else {}
+        name = args.get("name") or description or "AB Test"
+        result = ig.ab_test.create(name=name, variants=variants_dict, metric=metric, description=description)
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})

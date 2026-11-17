@@ -98,7 +98,8 @@ def create_app(
         verbose=False,
     )
 
-    app = FastAPI(title="instaharvest_v2 Agent", version="1.1.4")
+    from .. import __version__
+    app = FastAPI(title="instaharvest_v2 Agent", version=__version__)
 
     # Static files
     if STATIC_DIR.exists():
@@ -196,10 +197,7 @@ def create_app(
         """Get post likers."""
         try:
             # Try parsed version first
-            if hasattr(ig.media, "get_likers_parsed"):
-                likers = ig.media.get_likers_parsed(media_pk)
-            else:
-                likers = ig.media.get_likers(media_pk)
+            likers = ig.media.get_likers(media_pk)
             return JSONResponse({"success": True, "items": likers})
         except Exception as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)

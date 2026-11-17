@@ -374,7 +374,7 @@ user = ig.users.get_by_id(pk)
 user_id = ig.users.get_user_id("username")
 
 # Parse bio contacts
-bio = ig.users.parse_bio("username")
+bio = ig.users.parse_bio(user)
 # Returns: BioParsed(emails, phones, urls, hashtags, mentions)
 
 # Search users
@@ -393,7 +393,7 @@ feed = ig.feed.get_user_feed(user_id)     # dict with "items" list
 posts = ig.feed.get_all_posts(user_id, max_posts=20)  # list of post dicts
 timeline = ig.feed.get_timeline()           # Home timeline
 tag_feed = ig.feed.get_tag_feed("hashtag") # Hashtag feed
-liked = ig.feed.get_liked(max_count=20)    # Liked posts
+liked = ig.feed.get_liked(count=20)    # Liked posts
 saved = ig.feed.get_saved()                # Saved posts
 # Post dicts: post.get("caption", {})  — caption dict or None
 #   Caption text: (post.get("caption") or {}).get("text", "")
@@ -436,10 +436,10 @@ ig.friendships.remove_follower(user_id)
 # ig.stories — Stories (LOGIN REQUIRED)
 # ──────────────────────────────────────────────────────────────
 ```python
-tray = ig.stories.get_tray()                       # All stories in feed
+tray = ig.stories.get_reels_tray()                 # All stories in feed
 stories = ig.stories.get_user_stories(user_id)     # User's stories
 highlights = ig.stories.get_highlights_tray(user_id)
-ig.stories.mark_seen(story_id, user_id)
+ig.stories.mark_seen([{"media_id": story_id, "user_id": user_id}])
 ```
 
 # ──────────────────────────────────────────────────────────────
@@ -514,7 +514,7 @@ ig.upload.post_carousel(["img1.jpg", "img2.jpg"], caption="text")
 ig.export.followers_to_csv("username", "followers.csv", max_count=0)
 ig.export.following_to_csv("username", "following.csv")
 ig.export.to_json("username", "profile.json")
-ig.export.to_jsonl("username", "data.jsonl")
+ig.pipeline.to_jsonl("username", "data.jsonl")
 ```
 
 # ──────────────────────────────────────────────────────────────
@@ -601,7 +601,7 @@ ig.pipeline.to_jsonl("username", "data.jsonl")
 # ig.monitor — Profile Monitoring
 # ──────────────────────────────────────────────────────────────
 ```python
-ig.monitor.watch_profile("username")
+ig.monitor.watch("username")
 ```
 
 # ──────────────────────────────────────────────────────────────
@@ -617,8 +617,8 @@ ig.hashtag_research.suggest("hashtag", count=20)
 # ig.comment_manager — Comment Management
 # ──────────────────────────────────────────────────────────────
 ```python
-ig.comment_manager.reply_all(media_pk, "thanks!")
-ig.comment_manager.delete_negative(media_pk)
+ig.comment_manager.auto_reply(media_pk, reply="thanks!")
+ig.comment_manager.delete_spam(media_pk)
 ```
 
 # ══════════════════════════════════════════════════════════════
@@ -652,7 +652,7 @@ ig.comment_manager.delete_negative(media_pk)
 ## Media
 - pk (int), code (str), media_type (int)
 - caption_text (str), like_count (int), comment_count (int)
-- taken_at (int), image_url (str), video_url (str)
+- taken_at (datetime | None), best_image_url (str), best_video_url (str)
 
 ## Comment
 - pk (str), text (str), user (UserShort)
@@ -730,11 +730,11 @@ for name, p in profiles.items():
 
 # ERROR HANDLING
 - InstagramError: general error
-- LoginRequiredError: session expired
+- LoginRequired: session expired
 - RateLimitError: too many requests
 - PrivateAccountError: private account
 - NotFoundError: user/post not found
-- ChallengeError: challenge required
+- ChallengeRequired: challenge required
 - NetworkError: network issue
 - ProxyError: proxy error
 

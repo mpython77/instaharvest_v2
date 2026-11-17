@@ -255,10 +255,21 @@ class GeminiProvider(BaseProvider):
             if role == "system":
                 continue  # Handled as system_instruction
             elif role == "assistant":
+                parts = []
                 if content_val:
+                    parts.append(types.Part.from_text(text=content_val))
+                for tc in msg.get("tool_calls") or []:
+                    tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+                    tc_args = tc.get("arguments") if isinstance(tc, dict) else getattr(tc, "arguments", {})
+                    if tc_name and hasattr(types.Part, "from_function_call"):
+                        parts.append(types.Part.from_function_call(
+                            name=tc_name,
+                            args=dict(tc_args) if isinstance(tc_args, dict) else {},
+                        ))
+                if parts:
                     contents.append(types.Content(
                         role="model",
-                        parts=[types.Part.from_text(text=content_val)]
+                        parts=parts,
                     ))
             elif role == "tool":
                 # Tool result

@@ -236,7 +236,14 @@ class InstaAgent:
             self._mode = "anonymous"
         elif "Async" in ig_class:
             self._mode = "async"
-            self._is_logged_in = True
+            try:
+                if hasattr(ig, '_session_mgr') and ig._session_mgr.session_count > 0:
+                    self._is_logged_in = True
+                else:
+                    self._is_logged_in = False
+            except Exception as e:
+                logger.debug(f"Session detection failed: {e}")
+                self._is_logged_in = False
         else:
             self._mode = "sync"
             # Check if ig actually has sessions (cookies)
@@ -339,7 +346,7 @@ class InstaAgent:
                 "Main methods:",
                 "- ig.users.get_by_username(username) → User model",
                 "- ig.public.get_profile(username) → dict (fallback)",
-                "- ig.feed.user_feed(user_id) → list",
+                "- ig.feed.get_user_feed(user_id) → dict",
                 "- ig.friendships.follow/unfollow(user_id)",
                 "- ig.friendships.get_followers/get_following(user_id)",
                 "- ig.direct.send_text(thread_id, text)",
@@ -404,7 +411,7 @@ except Exception as e:
 - ❌ ig.media.like/comment — requires login
 - ❌ ig.upload.* — requires login
 - ❌ ig.account.* — requires login
-- ❌ ig.stories.get_tray — requires login
+- ❌ ig.stories.get_reels_tray — requires login
 
 ### AVAILABLE IN ANONYMOUS MODE:
 - ✅ ig.public.get_profile(username) → dict
@@ -452,7 +459,7 @@ except Exception as e:
 - ✅ ig.media.like/comment
 - ✅ ig.upload.post_photo/video/reel
 - ✅ ig.account.get_current_user
-- ✅ ig.stories.get_tray
+- ✅ ig.stories.get_reels_tray
 """)
         elif self._mode == "async":
             parts.append("""
@@ -1125,7 +1132,10 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
         emit_fn({"type": "tool_result", "name": "run_instaharvest_v2_code", "output": result_str[:2000],
                "success": isinstance(exec_result, ExecutionResult) and exec_result.success})
 
-        self._history.append({"role": "tool", "name": "run_instaharvest_v2_code", "content": result_str})
+        self._history.append({
+            "role": "user",
+            "content": f"[Auto-executed Python code output]:\n{result_str}",
+        })
         return True
 
     def _process_tool_calls(self, tool_calls, result: AgentResult, step_callback, emit_fn) -> bool:
@@ -1444,12 +1454,22 @@ Example: if 'cristiano' in _cache: user = _cache['cristiano']
             )
             self._history.append(msg)
         elif "Claude" in provider_name:
-            # Claude tool results need tool_use_id
+            # Preserve tool_calls so ClaudeProvider emits matching tool_use blocks
             msg = {"role": "assistant", "content": response.content or ""}
+            if response.tool_calls:
+                msg["tool_calls"] = [
+                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                    for tc in response.tool_calls
+                ]
             self._history.append(msg)
         else:
-            # Generic format for Gemini and others
+            # Gemini and others: preserve tool_calls alongside optional text content
             msg = {"role": "assistant", "content": response.content or ""}
+            if response.tool_calls:
+                msg["tool_calls"] = [
+                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                    for tc in response.tool_calls
+                ]
             self._history.append(msg)
 
     def _add_tool_result(self, tool_call: ToolCall, result: Any) -> None:

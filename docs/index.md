@@ -75,7 +75,7 @@
 
     ---
 
-    6280 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build.
+    6292 tests, pytest-cov, GitHub Actions pipeline — lint, test, security, build & docs deploy.
 
 </div>
 

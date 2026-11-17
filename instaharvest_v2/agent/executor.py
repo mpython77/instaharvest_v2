@@ -189,7 +189,41 @@ class SafeExecutor:
             try:
                 sys.stdout = captured_out
                 sys.stderr = captured_err
-                exec(code, namespace)
+                try:
+                    compiled = compile(code, "<sandbox>", "exec")
+                    exec(compiled, namespace)
+                except SyntaxError as syn_err:
+                    if "outside" not in str(syn_err):
+                        raise
+                    import ast as _ast
+                    import asyncio
+                    import textwrap
+                    wrapped = (
+                        "async def __agent_async_entry__():\n"
+                        + textwrap.indent(code, "    ")
+                        + "\n"
+                    )
+                    mod_ast = _ast.parse(wrapped)
+                    fn_node = mod_ast.body[0]
+                    assigned = []
+                    def _collect_targets(node):
+                        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+                            assigned.append(node.name)
+                            return
+                        if isinstance(node, _ast.Name) and isinstance(node.ctx, _ast.Store):
+                            if node.id not in assigned:
+                                assigned.append(node.id)
+                            return
+                        for child in _ast.iter_child_nodes(node):
+                            _collect_targets(child)
+                    for stmt in fn_node.body:
+                        _collect_targets(stmt)
+                    if assigned:
+                        fn_node.body.insert(0, _ast.Global(names=assigned))
+                    _ast.fix_missing_locations(mod_ast)
+                    exec(compile(mod_ast, "<sandbox>", "exec"), namespace)
+                    entry = namespace.pop("__agent_async_entry__")
+                    asyncio.run(entry())
             except Exception as e:
                 exception_holder[0] = e
             finally:

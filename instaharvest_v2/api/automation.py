@@ -435,7 +435,11 @@ class AutomationAPI:
                 story_id = item.get("pk") or item.get("id")
                 if story_id:
                     try:
-                        self._stories.mark_seen(story_id, user_id)
+                        self._stories.mark_seen([{
+                            "media_id": story_id,
+                            "user_id": user_id,
+                            "taken_at": item.get("taken_at", int(time.time())),
+                        }])
                         seen_count += 1
                         self._smart_delay(limits, factor=0.3)
                     except Exception as e:

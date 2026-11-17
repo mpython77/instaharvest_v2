@@ -1190,7 +1190,8 @@ def handle_get_timeline(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
         return "❌ Login required to view timeline."
     max_count = min(args.get("max_count", 10), 20)
     try:
-        posts = ig.feed.get_timeline(max_count=max_count)
+        raw = ig.feed.get_timeline(count=max_count)
+        posts = raw.get("posts", raw.get("items", [])) if isinstance(raw, dict) else raw
         if not posts:
             return "No timeline posts found."
         items = posts if isinstance(posts, list) else [posts]
@@ -1212,7 +1213,8 @@ def handle_get_saved_posts(args: Dict, ig=None, is_logged_in=False, **kw) -> str
         return "❌ Login required to view saved posts."
     max_count = min(args.get("max_count", 10), 50)
     try:
-        posts = ig.feed.get_saved(max_count=max_count)
+        raw = ig.feed.get_saved(count=max_count)
+        posts = raw.get("posts", raw.get("items", [])) if isinstance(raw, dict) else raw
         if not posts:
             return "No saved posts found."
         items = posts if isinstance(posts, list) else [posts]
@@ -1233,7 +1235,8 @@ def handle_get_liked_posts(args: Dict, ig=None, is_logged_in=False, **kw) -> str
         return "❌ Login required to view liked posts."
     max_count = min(args.get("max_count", 10), 50)
     try:
-        posts = ig.feed.get_liked(max_count=max_count)
+        raw = ig.feed.get_liked(count=max_count)
+        posts = raw.get("posts", raw.get("items", [])) if isinstance(raw, dict) else raw
         if not posts:
             return "No liked posts found."
         items = posts if isinstance(posts, list) else [posts]

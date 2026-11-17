@@ -9,7 +9,8 @@
   - Enabled lazy-loading parity on `AsyncInstagram` via `_lazy_modules.py` (`LAZY_ASYNC_API_MODULES`, `LAZY_ASYNC_MODULE_NAMES`, shared `resolve_lazy_module()`).
   - Added `instaharvest_v2/agent/__init__.py` lazy exports (`InstaAgent`, `AgentResult`, `Permission`, `AgentCoordinator`).
   - Added `verify_session()` and `AsyncInstagram.warm_up()` plus SSR/Polaris fallback parsers in `parsers.py`.
-  - Added `tests/test_architecture_hardening.py`, `tests/test_live_scan_fixes.py`, and `tests/test_ssr_sjs_parsers.py`.
+  - Added `tests/test_architecture_hardening.py`, `tests/test_live_scan_fixes.py`, `tests/test_ssr_sjs_parsers.py`, and `tests/test_agent_hardening.py`.
+  - Added `.github/workflows/docs.yml` to automatically build and deploy MkDocs Material documentation to GitHub Pages (`gh-pages`).
 
 ### Fixed
 
@@ -19,15 +20,20 @@
   - Fixed `filters.matches(...)` unawaited calls in `AsyncExportAPI` and `AsyncGrowthAPI`.
   - Aligned `UploadAPI`/`AsyncUploadAPI` (`photo`, `video`, `reel`), `StoriesAPI`/`AsyncStoriesAPI` (`get_highlights`, `upload_photo`, `upload_video`), `DownloadAPI`/`AsyncDownloadAPI` (`url_to_file`), and `HashtagsAPI`/`AsyncHashtagsAPI` (`get_sections`, `get_recent_media`) method contracts.
 - **proxy_health.py** — Removed a dead `import requests` inside `ProxyHealthChecker.check_all()`. The method performs its checks via `curl_cffi` (in `_check_proxy`), so the unused import served no purpose and raised `ModuleNotFoundError` whenever `requests` was not installed.
-- **Test suite** — Repaired 29 tests that broke after the v1.1.88 enterprise-architecture refactor and added regression tests:
+- **AI Agent & `AsyncInstagram.anonymous()`**
+  - Fixed `AsyncInstagram.anonymous()` (`NameError: AsyncPublicAPI`) by evicting cached `public`/`public_data` so lazy factories rebind against the configured `AsyncAnonClient`.
+  - Fixed `AutomationAPI.watch_stories()` passing 2 positional arguments to `StoriesAPI.mark_seen(items: List[Dict])`.
+  - Fixed 28 parameter/property mismatches across `agent/tools/` (`automation_tools.py`, `export_tools.py`, `analytics_tools.py`, `growth_tools.py`, `pipeline_tools.py`, `instagram_tools.py`, `network_tools.py`), `agent/web.py`, and `agent/knowledge.py`.
+  - Fixed `InstaAgent` async anonymous detection, `SafeExecutor.run()` top-level `await` execution, `_try_auto_execute()` history formatting, and multi-turn `tool_use` / `function_call` history for `ClaudeProvider` and `GeminiProvider`.
+- **Test suite** — Repaired 29 tests that broke after the v1.1.88 enterprise-architecture refactor and added strict `create_autospec`/AST regression tests (`test_agent_hardening.py`):
   - `test_100_batch12.py` — inject the new `_breakers` (`CircuitBreakerRegistry`) attribute into the hand-built `AsyncHttpClient`, which `_request()` now requires.
   - `test_api_methods.py`, `test_anon_remaining.py`, `test_public_bulk_monitor_sched.py` — `PublicAPI` reads now route through `client.cached_call(key, fetch_fn)`; the mocked client is configured to execute `fetch_fn` so the underlying `*_chain` mocks run.
   - `test_session_manager.py` — `get_session()` no longer increments `total_requests` (now done by `report_request()`); the test was updated to the new contract.
-  - Result: full suite is at **6280 passed, 41 skipped, 0 failed**.
+  - Result: full suite is at **6292 passed, 41 skipped, 0 failed**.
 
 ### Documentation
 
-- **README.md & docs/** — Synchronized codebase metrics, API method/parameter signatures, model fields, `core/` wiring details, and `agent/` provider/tool docs with current code (`33 sync + 34 async` lazy modules, `162` agent tools across `13` tool modules, `11` AI providers, `6280 tests passed`).
+- **README.md & docs/** — Removed promotional hype/exaggeration from `README.md`, synchronized codebase metrics, API method/parameter signatures, model fields, `core/` wiring details, and `agent/` provider/tool docs with current code (`33 sync + 34 async` lazy modules, `162` agent tools across `13` tool modules, `11` AI providers, `6292 tests passed`).
 
 ---
 

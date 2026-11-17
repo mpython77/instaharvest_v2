@@ -184,7 +184,7 @@ def handle_manage_comments(args: Dict, ig=None, is_logged_in=False, **kw) -> str
         if not media_id:
             return json.dumps({"error": "media_id is required"})
 
-        result = ig.comment_manager.get_comments(media_id, max_count=max_count)
+        result = ig.comment_manager.get_comments(media_id, count=max_count)
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})

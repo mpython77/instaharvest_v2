@@ -82,7 +82,7 @@ def handle_follow_hashtag_users(args: Dict, ig=None, is_logged_in=False, **kw) -
     if not hashtag:
         return "Error: 'hashtag' is required."
     try:
-        result = ig.growth.follow_hashtag_users(hashtag, max_count=max_count)
+        result = ig.growth.follow_hashtag_users(hashtag, count=max_count)
         if isinstance(result, dict):
             followed = result.get("followed", 0)
             return f"✅ Followed {followed} users from #{hashtag}!"

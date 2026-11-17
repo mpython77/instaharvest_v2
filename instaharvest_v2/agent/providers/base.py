@@ -1899,6 +1899,7 @@ instaharvest_v2_TOOLS = [
         "parameters": {
             "type": "object",
             "properties": {
+                "name": {"type": "string", "description": "Optional test name"},
                 "variants": {"type": "array", "items": {"type": "string"}, "description": "Test variant names/descriptions"},
                 "metric": {"type": "string", "description": "Metric to optimize (default: 'engagement')"},
                 "description": {"type": "string", "description": "Test description"},
@@ -1988,11 +1989,12 @@ instaharvest_v2_TOOLS = [
     },
     {
         "name": "auto_watch_stories",
-        "description": "Auto-watch stories from your following list. REQUIRES LOGIN.",
+        "description": "Auto-watch stories from your story tray or a specific user. REQUIRES LOGIN.",
         "parameters": {
             "type": "object",
             "properties": {
-                "max_count": {"type": "integer", "description": "Max stories to watch (default: 20)"},
+                "username": {"type": "string", "description": "Optional target username whose stories to watch"},
+                "max_count": {"type": "integer", "description": "Max accounts/stories to watch from tray (default: 20)"},
             },
         },
     },

@@ -1,6 +1,6 @@
 # 📸 InstaHarvest v2
 
-**Powerful Instagram Private API** — async, anti-detection, Pydantic models, AI Agent
+**Python Instagram Private & Public API Client** — sync/async parity, anti-detection, Pydantic models, AI Agent
 
 [![PyPI](https://img.shields.io/pypi/v/instaharvest-v2?color=blue)](https://pypi.org/project/instaharvest-v2/)
 [![Python](https://img.shields.io/pypi/pyversions/instaharvest-v2)](https://pypi.org/project/instaharvest-v2/)
@@ -8,25 +8,21 @@
 ![Modules](https://img.shields.io/badge/modules-33+34-green)
 ![Async](https://img.shields.io/badge/async-full_parity-brightgreen)
 ![Agent Tools](https://img.shields.io/badge/agent_tools-162-orange)
-![Tests](https://img.shields.io/badge/tests-6280_passed-success)
+![Tests](https://img.shields.io/badge/tests-6292_passed-success)
 ![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)
 [![Docs](https://img.shields.io/badge/docs-online-blue?logo=readthedocs)](https://mpython77.github.io/instaharvest_v2/)
 
-> 33 sync + 34 async modules (33 async API mirrors + `batch`) • 335+ methods • 162 agent tools • Pydantic models • AI Agent • CI/CD • 6280 tests passed
->
-> 📖 **Documentation:** [mpython77.github.io/instaharvest_v2](https://mpython77.github.io/instaharvest_v2/)
+> 33 sync + 34 async modules (33 async API mirrors + `batch`) • 335+ methods • 162 agent tools • Pydantic v2 models • AI Agent • CI/CD
 
 ---
 
-## 🌟 Why InstaHarvest V2 is Unstoppable
+## Architecture Overview
 
-Unlike legacy wrappers that easily get blocked by Instagram's bot detection, InstaHarvest v2 is engineered with an enterprise-grade **Resilient Anti-Detect Architecture**. It boasts:
-
-- **14-Layer Fallback Strategies**: Intelligently auto-pivots between `GraphQL`, `Mobile API`, and `Web API` if an endpoint fails or challenges you, effectively ensuring 100% extraction rates.
-- **Rotating Proxy Auto-Detection**: Uses active `ip-checking` to instantly identify if your proxies rotate IPs. It autonomously configures aggressive `Mobile API` endpoints to bypass `HTTP 400 Bad Request` restrictions standard GraphQL methods suffer from on Dynamic IPs. Check out the `examples/` dir for ultra-fast 50+ concurrent profile pagination testing!
-- **TLS/JA3 Impersonation**: Built heavily on `curl_cffi`, the library perfectly masks Python traffic by cloning Chrome v142 browser footprints.
-- **No-Cookie Deep Harvesting**: Achieve thousands of posts paginations absolutely anonymously using highly-stabilized concurrent routines powered by `asyncio`.
-- **Bulletproof Pydantic Execution**: 100% static type safety parsing, meaning broken, mismatched, or altered payloads from Instagram API are elegantly downgraded without crashing the scraping chain.
+- **Multi-Strategy Fallback**: Automatically rotates between `GraphQL`, `Mobile API`, and `Web API` endpoints when an endpoint fails or returns incomplete data.
+- **Rotating Proxy Auto-Detection**: `ProxyManager.detect_proxy_type()` identifies rotating-IP proxies and pairs with Mobile API pagination to avoid strict GraphQL cookie checks. See `examples/parallel_proxy_mobile.py`.
+- **TLS/JA3 Impersonation**: Uses `curl_cffi` to match coherent Chrome TLS/header profiles (`chrome142`/`chrome136`) with session-locked identities.
+- **Anonymous Public Access**: Supports unauthenticated profile, post, reel, comment, hashtag, and location lookups via `Instagram.anonymous()` and `AsyncInstagram.anonymous()`.
+- **Pydantic v2 Models**: Typed return objects (`InstaModel` with `extra="allow"`) supporting both attribute access and dict-style indexing without breaking when upstream API payloads change.
 
 ---
 
@@ -76,7 +72,7 @@ ig = Instagram()
 ig.auth.load_session("session.json")   # no re-login needed
 ```
 
-### Async mode (50x faster for bulk)
+### Async mode (concurrent bulk requests)
 
 ```python
 import asyncio
@@ -115,10 +111,9 @@ hashtag = ig.public.get_hashtag_posts("fashion", max_count=10)
 location = ig.public.get_location_posts("213385402", max_count=10)
 ```
 
-### 🛰️ Ultra-Fast Parallel Scraping with Rotating Proxies
+### 🛰️ Parallel Scraping with Rotating Proxies
 
-When using standard proxy services (like Proxy-Seller) that rotate IPs constantly, Instagram blocks standard Public GraphQL requests with HTTP 400.
-We engineered a specialized architecture leveraging **Mobile APIs** combined with smart Proxy Auto-Detection to bypass these limits at extreme concurrency.
+When using rotating-IP proxies (such as residential backconnect pools), Instagram often rejects public GraphQL pagination with HTTP 400. Combining `ProxyManager.detect_proxy_type()` with Mobile API endpoints handles rotating IPs reliably:
 
 ```python
 import asyncio
@@ -164,7 +159,7 @@ python -m instaharvest_v2 diagnose cristiano -o ./results/  # JSON output
 ### 🎬 Reel / Post Scraping (no login, no cookies!)
 
 ```python
-ig = Instagram()
+ig = Instagram.anonymous()
 
 # By shortcode (from URL: instagram.com/reel/ABC123/)
 post = ig.public.get_post_by_shortcode("ABC123")
@@ -352,7 +347,7 @@ ig.auth.validate_session()
 ig.auth.logout()
 ```
 
-### 🌐 Public Anonymous API (22 methods, no login!)
+### 🌐 Public Anonymous API (23 methods, no login!)
 
 ```python
 ig = Instagram.anonymous(unlimited=True)
@@ -402,7 +397,7 @@ ig.collections.get_list()              # Saved collections
 ### 🔬 GraphQL API v2 (Modern doc_id Transport)
 
 Direct access to Instagram's modern GraphQL endpoints with verified doc_ids.
-All methods use POST `/graphql/query` — faster and more reliable than REST.
+All methods use POST `/graphql/query`.
 
 ```python
 # 👤 Profile — mini profile info (fast and lightweight)
@@ -637,24 +632,24 @@ print(user.get("some_new_field"))    # returns field if present in payload
 | 🔬 **Diagnostics** | 41-method health check (sync+async), CLI support, JSON output |
 | 🏗️ **Core infra** | Circuit breaker, token bucket, response cache, connection pool, metrics, structured logging |
 | ✅ **CI/CD** | GitHub Actions — lint, test (4 Python versions), security, build |
-| 🧪 **6280 tests** | pytest, comprehensive unit, contract, and AST invariant tests |
+| 🧪 **6292 tests** | pytest, unit, contract, and AST invariant tests |
 
-## Core Infrastructure (v1.1.88)
+## Core Infrastructure
 
-InstaHarvest v2 includes an infrastructure layer in `instaharvest_v2.core` with zero external runtime dependencies:
+`instaharvest_v2.core` provides runtime resilience primitives with zero external runtime dependencies:
 
 | Component | Purpose |
 | --------- | ------- |
-| **CircuitBreaker** | Per-endpoint three-state failure isolation (`CLOSED` → `OPEN` → `HALF_OPEN`). Active in `HttpClient` and `AsyncHttpClient` to prevent cascading failures. |
-| **TokenBucketLimiter** | O(1) sync + async token bucket rate limiter with burst capacity available in `core/` alongside `HttpClient`'s sliding-window `RateLimiter`. |
-| **ResponseCache** | LRU + TTL cache active in sync `AnonClient` (`PublicAPI.get_profile`, `PublicAPI.get_post_by_shortcode`) with stale-while-revalidate support. |
-| **ConnectionPool** | `curl_cffi` session pool helper with health tracking in `core/`. |
+| **CircuitBreaker** | Per-endpoint three-state failure isolation (`CLOSED` → `OPEN` → `HALF_OPEN`) used by `HttpClient` and `AsyncHttpClient`. |
+| **TokenBucketLimiter** | O(1) sync + async token bucket rate limiter with burst capacity alongside `HttpClient`'s sliding-window `RateLimiter`. |
+| **ResponseCache** | LRU + TTL cache used by `AnonClient` (`PublicAPI.get_profile`, `PublicAPI.get_post_by_shortcode`) with stale-while-revalidate support. |
+| **ConnectionPool** | `curl_cffi` session pool helper with health tracking. |
 | **Metrics** | Prometheus-compatible counters, gauges, and histograms (`metrics` registry). |
-| **StructuredLogger** | JSON log entries with correlation IDs and automatic PII redaction. |
+| **StructuredLogger** | JSON log entries with correlation IDs and PII redaction. |
 
 ### Lazy-Loading Architecture
 
-Both `Instagram` (33 modules) and `AsyncInstagram` (34 modules, including `batch`) lazy-load all API modules on first attribute lookup via `__getattr__` and the `_lazy_modules.py` registry (`resolve_lazy_module`). This avoids upfront import overhead and reduces memory footprint when only a subset of modules is used.
+`Instagram` (33 modules) and `AsyncInstagram` (34 modules, including `batch`) load API modules on first attribute access via `__getattr__` and `_lazy_modules.py` (`resolve_lazy_module`), avoiding upfront initialization of unused modules.
 
 ### Metrics & Observability
 
@@ -664,20 +659,20 @@ print(metrics.snapshot())
 print(metrics.export_prometheus())
 ```
 
-Every HTTP request emits duration, error, retry, and short-circuit metrics (declared in `_http_metrics.py`). The circuit breaker registry tracks per-endpoint failure rates and state transitions.
+HTTP requests emit duration, error, retry, and short-circuit metrics declared in `_http_metrics.py`.
 
 ### Response Cache (Anonymous API)
 
 ```python
 ig = Instagram.anonymous()
 profile = ig.public.get_profile("cristiano")  # fetches and caches (5min TTL)
-profile = ig.public.get_profile("cristiano")  # instant cache hit
+profile = ig.public.get_profile("cristiano")  # cache hit
 
 stats = ig.public.cache_stats  # {size, hits, misses, hit_rate}
 ig.public.invalidate_cache(prefix="get_profile:")  # force refresh
 ```
 
-`get_profile()` and `get_post_by_shortcode()` on the PublicAPI use `cached_call()` with a 5-minute default TTL. The cache supports stale-while-revalidate for near-zero latency on repeated lookups.
+`get_profile()` and `get_post_by_shortcode()` on `PublicAPI` use `cached_call()` with a 5-minute default TTL and stale-while-revalidate.
 
 ---
 
@@ -708,7 +703,7 @@ pytest tests/ --cov=instaharvest_v2 --cov-report=term-missing
 
 **Current status:**
 
-- ✅ 6280 tests passed (41 skipped)
+- ✅ 6292 tests passed (41 skipped)
 - 📊 ~83.6% CI coverage baseline (core package; `agent/` and `web/` excluded; >70% fail-under gate)
 
 ---
@@ -749,7 +744,7 @@ instaharvest_v2/
 │   ├── hashtag.py         # HashtagSearchResult
 │   ├── notification.py    # Notification, NotifInbox
 │   └── public_data.py     # PublicProfile, PublicPost, HashtagPost, etc.
-├── core/                  # Infrastructure layer (v1.1.88)
+├── core/                  # Infrastructure layer
 │   ├── circuit_breaker.py # Three-state failure isolation
 │   ├── token_bucket.py    # O(1) rate limiting with burst
 │   ├── response_cache.py  # LRU + TTL cache
@@ -814,21 +809,22 @@ instaharvest_v2/
 │   ├── webhook.py         # Notifications (Telegram, Discord)
 │   ├── cost_tracker.py    # Token usage & pricing
 │   └── vision.py          # Multimodal image analysis
-tests/                     # 6280 tests
+tests/                     # 6292 tests
 docs/                      # MkDocs documentation
 .github/workflows/         # CI/CD pipeline
 ```
 
 ## CI/CD
 
-GitHub Actions pipeline (`.github/workflows/ci.yml`):
+GitHub Actions pipelines (`.github/workflows/ci.yml` and `.github/workflows/docs.yml`):
 
-| Job | Description |
-| ----- | ------------- |
-| **Lint** | flake8 + mypy |
-| **Test** | Python 3.10, 3.11, 3.12, 3.13 + coverage |
-| **Security** | bandit + safety |
-| **Build** | Package + twine check |
+| Workflow / Job | Description |
+| -------------- | ----------- |
+| **Lint** | flake8 + mypy (`ci.yml`) |
+| **Test** | Python 3.10, 3.11, 3.12, 3.13 + coverage (`ci.yml`) |
+| **Security** | bandit + safety (`ci.yml`) |
+| **Build** | Package + twine check (`ci.yml`) |
+| **Docs** | MkDocs Material build & deploy to `gh-pages` (`docs.yml`) |
 
 ## ⚠️ Legal Disclaimer
 

@@ -16,6 +16,26 @@ logger = logging.getLogger("instaharvest_v2.agent.tools")
 # AUTOMATION — Auto-DM, auto-like, auto-comment (REQUIRES LOGIN)
 # ═══════════════════════════════════════════════════════════
 
+def _read_attr_or_call(obj, attr_name: str):
+    """Read a property/attribute or invoke it safely if callable (supports mocks)."""
+    val = getattr(obj, attr_name)
+    return val() if callable(val) else val
+
+
+def _extract_tray_usernames(tray_data) -> list:
+    """Extract unique usernames from a get_reels_tray() payload."""
+    if not isinstance(tray_data, dict):
+        return []
+    usernames = []
+    for entry in tray_data.get("tray", []):
+        if isinstance(entry, dict):
+            user = entry.get("user") or {}
+            uname = user.get("username")
+            if uname and uname not in usernames:
+                usernames.append(uname)
+    return usernames
+
+
 def handle_auto_dm_new_followers(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
     """Auto-DM new followers."""
     if ig is None:
@@ -29,7 +49,7 @@ def handle_auto_dm_new_followers(args: Dict, ig=None, is_logged_in=False, **kw) 
         if not message:
             return json.dumps({"error": "message text is required"})
 
-        result = ig.automation.dm_new_followers(message=message, max_count=max_count)
+        result = ig.automation.dm_new_followers(templates=message, max_count=max_count)
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -50,7 +70,7 @@ def handle_auto_comment_hashtag(args: Dict, ig=None, is_logged_in=False, **kw) -
             return json.dumps({"error": "hashtag and comment are required"})
 
         result = ig.automation.comment_on_hashtag(
-            hashtag=hashtag, comment=comment, max_count=max_count
+            tag=hashtag, templates=[comment], count=max_count
         )
         return json.dumps(result, default=str)
     except Exception as e:
@@ -66,7 +86,7 @@ def handle_auto_like_feed(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
 
     try:
         max_count = args.get("max_count", 10)
-        result = ig.automation.auto_like_feed(max_count=max_count)
+        result = ig.automation.auto_like_feed(count=max_count)
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -85,7 +105,7 @@ def handle_auto_like_hashtag(args: Dict, ig=None, is_logged_in=False, **kw) -> s
         if not hashtag:
             return json.dumps({"error": "hashtag is required"})
 
-        result = ig.automation.auto_like_hashtag(hashtag=hashtag, max_count=max_count)
+        result = ig.automation.auto_like_hashtag(tag=hashtag, count=max_count)
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -99,8 +119,24 @@ def handle_auto_watch_stories(args: Dict, ig=None, is_logged_in=False, **kw) -> 
         return json.dumps({"error": "Login required for automation"})
 
     try:
+        username = args.get("username", "").strip().lstrip("@")
         max_count = args.get("max_count", 20)
-        result = ig.automation.watch_stories(max_count=max_count)
+        if username:
+            result = ig.automation.watch_stories(username)
+        else:
+            tray = ig.stories.get_reels_tray() if hasattr(ig, "stories") else {}
+            if isinstance(tray, dict):
+                targets = _extract_tray_usernames(tray)[:max_count]
+                watched_total = 0
+                watched_users = []
+                for uname in targets:
+                    res = ig.automation.watch_stories(uname)
+                    count_seen = res.get("watched", 0) if isinstance(res, dict) else 0
+                    watched_total += count_seen
+                    watched_users.append(uname)
+                result = {"watched": watched_total, "accounts": watched_users}
+            else:
+                result = ig.automation.watch_stories("")
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -114,7 +150,7 @@ def handle_get_action_log(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
         return json.dumps({"error": "Login required for automation"})
 
     try:
-        result = ig.automation.action_log()
+        result = _read_attr_or_call(ig.automation, "action_log")
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -139,7 +175,7 @@ def handle_schedule_post(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
             return json.dumps({"error": "image_path and schedule_time are required"})
 
         result = ig.scheduler.post_at(
-            image_path=image_path, caption=caption, schedule_time=schedule_time
+            scheduled_time=schedule_time, photo=image_path, caption=caption
         )
         return json.dumps(result, default=str)
     except Exception as e:
@@ -159,9 +195,9 @@ def handle_schedule_story(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
         if not media_path or not schedule_time:
             return json.dumps({"error": "media_path and schedule_time are required"})
 
-        result = ig.scheduler.story_at(
-            media_path=media_path, schedule_time=schedule_time
-        )
+        is_video = media_path.lower().endswith((".mp4", ".mov", ".avi", ".mkv", ".webm"))
+        media_kw = {"video": media_path} if is_video else {"photo": media_path}
+        result = ig.scheduler.story_at(scheduled_time=schedule_time, **media_kw)
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -182,7 +218,7 @@ def handle_schedule_reel(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
             return json.dumps({"error": "video_path and schedule_time are required"})
 
         result = ig.scheduler.reel_at(
-            video_path=video_path, caption=caption, schedule_time=schedule_time
+            scheduled_time=schedule_time, video=video_path, caption=caption
         )
         return json.dumps(result, default=str)
     except Exception as e:
@@ -237,7 +273,20 @@ def handle_monitor_account(args: Dict, ig=None, is_logged_in=False, **kw) -> str
         if not username:
             return json.dumps({"error": "username is required"})
 
-        result = ig.monitor.watch(username)
+        watcher = ig.monitor.watch(username)
+        if isinstance(watcher, dict):
+            result = watcher
+        else:
+            watched_list = (
+                _read_attr_or_call(ig.monitor, "watched_accounts")
+                if hasattr(ig.monitor, "watched_accounts")
+                else [username]
+            )
+            result = {
+                "watching": getattr(watcher, "username", username),
+                "status": "watching",
+                "watched_accounts": watched_list,
+            }
         return json.dumps(result, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -284,11 +333,14 @@ def handle_get_monitor_events(args: Dict, ig=None, is_logged_in=False, **kw) -> 
 
     try:
         username = args.get("username", None)
-        if username:
-            result = ig.monitor.event_log(username=username)
-        else:
-            result = ig.monitor.event_log()
-        return json.dumps(result, default=str)
+        events = _read_attr_or_call(ig.monitor, "event_log")
+        if username and isinstance(events, list):
+            target_user = username.lstrip("@").lower()
+            events = [
+                e for e in events
+                if isinstance(e, dict) and str(e.get("username", "")).lower() == target_user
+            ]
+        return json.dumps(events, default=str)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

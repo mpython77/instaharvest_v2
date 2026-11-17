@@ -79,7 +79,23 @@ class ClaudeProvider(BaseProvider):
                 system = msg["content"]
             elif msg.get("role") == "assistant":
                 content = msg.get("content", "")
-                if content:
+                raw_tool_calls = msg.get("tool_calls") or []
+                if raw_tool_calls:
+                    blocks = []
+                    if content:
+                        blocks.append({"type": "text", "text": content})
+                    for tc in raw_tool_calls:
+                        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                        tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+                        tc_args = tc.get("arguments") if isinstance(tc, dict) else getattr(tc, "arguments", {})
+                        blocks.append({
+                            "type": "tool_use",
+                            "id": tc_id or f"tool_{uuid.uuid4().hex[:8]}",
+                            "name": tc_name,
+                            "input": dict(tc_args) if isinstance(tc_args, dict) else {},
+                        })
+                    claude_messages.append({"role": "assistant", "content": blocks})
+                elif content:
                     claude_messages.append({"role": "assistant", "content": content})
             elif msg.get("role") == "tool":
                 # Tool result for Claude
@@ -87,7 +103,7 @@ class ClaudeProvider(BaseProvider):
                     "role": "user",
                     "content": [{
                         "type": "tool_result",
-                        "tool_use_id": msg.get("tool_use_id", f"tool_{uuid.uuid4().hex[:8]}"),
+                        "tool_use_id": msg.get("tool_use_id") or msg.get("tool_call_id") or f"tool_{uuid.uuid4().hex[:8]}",
                         "content": str(msg.get("content", "")),
                     }]
                 })

@@ -58,9 +58,9 @@ print(result.answer)
 
 | Provider | Default Model | API Key Env Var |
 |---|---|---|
-| **Google Gemini** | `gemini-2.5-flash` | `GEMINI_API_KEY` |
+| **Google Gemini** | `gemini-3-flash-preview` | `GEMINI_API_KEY` |
 | **OpenAI** | `gpt-4.1-mini` | `OPENAI_API_KEY` |
-| **Anthropic Claude** | `claude-sonnet-4` | `ANTHROPIC_API_KEY` |
+| **Anthropic Claude** | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
 | **DeepSeek** | `deepseek-chat` | `DEEPSEEK_API_KEY` |
 | **Qwen** | `qwen-turbo` | `DASHSCOPE_API_KEY` |
 | **Groq** | `llama-3.3-70b-versatile` | `GROQ_API_KEY` |

@@ -328,7 +328,10 @@ class AsyncInstagram:
             profile_strategies=profile_strategies,
             posts_strategies=posts_strategies,
         )
-        instance.public = AsyncPublicAPI(instance._anon_client)
+        # Evict cached public/public_data so the lazy factories rebuild
+        # them against the new _anon_client on next access.
+        instance.__dict__.pop("public", None)
+        instance.__dict__.pop("public_data", None)
         return instance
 
     @classmethod

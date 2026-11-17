@@ -232,10 +232,34 @@ def handle_explore_feed(args: Dict, ig=None, is_logged_in=False, **kw) -> str:
         return "❌ Login required to view Explore feed."
     max_count = min(args.get("max_count", 10), 30)
     try:
-        results = ig.search.explore(max_count=max_count)
+        results = ig.search.explore()
         if not results:
             return "No explore content found."
-        items = results if isinstance(results, list) else [results]
+        if isinstance(results, list):
+            items = results
+        elif isinstance(results, dict):
+            items = list(results.get("items") or results.get("posts") or [])
+            if not items:
+                for sec in results.get("sectional_items", []):
+                    if not isinstance(sec, dict):
+                        continue
+                    lc = sec.get("layout_content") or {}
+                    for m in lc.get("medias", []):
+                        media = m.get("media") if isinstance(m, dict) else None
+                        if isinstance(media, dict):
+                            items.append(media)
+                    for fitem in lc.get("fill_items", []):
+                        media = fitem.get("media") if isinstance(fitem, dict) else None
+                        if isinstance(media, dict):
+                            items.append(media)
+                    channel = (lc.get("two_by_two_item") or {}).get("channel") or {}
+                    ch_media = channel.get("media")
+                    if isinstance(ch_media, dict):
+                        items.append(ch_media)
+            if not items:
+                items = [results]
+        else:
+            items = []
         lines = [f"🔍 Explore Feed ({len(items)} items):"]
         for i, p in enumerate(items[:max_count], 1):
             if isinstance(p, dict):
